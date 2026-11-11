@@ -101,7 +101,7 @@ export const ElementContent = memo(function ElementContent({
         alt=""
         draggable={false}
         className="w-full h-full select-none pointer-events-none box-border"
-        style={{ border: hasStroke ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none', objectFit: el.imageFit ?? 'cover' }}
+        style={{ border: hasStroke ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none', objectFit: el.imageFit ?? 'cover', borderRadius: el.borderRadius || undefined }}
       />
     );
   }

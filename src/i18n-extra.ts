@@ -106,7 +106,15 @@ export const EXTRA_FR: Dict = {
   'vw.fitTip': "Ajuster la page à l’écran (automatique quand le ruban est masqué)",
   'rb.vTop': "Texte en haut du cadre",
   'rb.vMiddle': "Texte centré verticalement",
-  'rb.vBottom': "Texte en bas du cadre"
+  'rb.vBottom': "Texte en bas du cadre",
+  'pg.gapTip': "Cliquez pour placer le point d’insertion, puis appuyez sur Entrée pour ajouter une page ici",
+  'pg.gapEnter': "Entrée",
+  'insp.imgRound': "Coins arrondis",
+  'insp.round.none': "Coins droits",
+  'insp.round.light': "Léger arrondi",
+  'insp.round.medium': "Arrondi moyen",
+  'insp.round.strong': "Arrondi fort",
+  'insp.round.oval': "Ovale"
 };
 
 export const EXTRA_EN: Dict = {
@@ -178,7 +186,15 @@ export const EXTRA_EN: Dict = {
   'vw.fitTip': "Fit the page to the screen (automatic when the ribbon is hidden)",
   'rb.vTop': "Text at the top of the box",
   'rb.vMiddle': "Text centred vertically",
-  'rb.vBottom': "Text at the bottom of the box"
+  'rb.vBottom': "Text at the bottom of the box",
+  'pg.gapTip': "Click to place the insertion point, then press Enter to add a page here",
+  'pg.gapEnter': "Enter",
+  'insp.imgRound': "Rounded corners",
+  'insp.round.none': "Square corners",
+  'insp.round.light': "Slightly rounded",
+  'insp.round.medium': "Rounded",
+  'insp.round.strong': "Very rounded",
+  'insp.round.oval': "Oval"
 };
 
 export const EXTRA_AR: Dict = {
@@ -250,5 +266,13 @@ export const EXTRA_AR: Dict = {
   'vw.fitTip': "ملاءمة الصفحة للشاشة (تلقائية عند إخفاء الشريط)",
   'rb.vTop': "النص في أعلى الإطار",
   'rb.vMiddle': "النص في الوسط عموديًا",
-  'rb.vBottom': "النص في أسفل الإطار"
+  'rb.vBottom': "النص في أسفل الإطار",
+  'pg.gapTip': "انقري لتحديد موضع الإدراج ثم اضغطي مفتاح الإدخال (Enter) لإضافة صفحة هنا",
+  'pg.gapEnter': "إدخال",
+  'insp.imgRound': "زوايا مستديرة",
+  'insp.round.none': "زوايا حادة",
+  'insp.round.light': "استدارة خفيفة",
+  'insp.round.medium': "استدارة متوسطة",
+  'insp.round.strong': "استدارة قوية",
+  'insp.round.oval': "بيضوي"
 };

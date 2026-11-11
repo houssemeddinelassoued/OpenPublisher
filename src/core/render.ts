@@ -145,6 +145,13 @@ async function drawElement(
     }
   } else if (el.type === 'image' && el.imageUrl) {
     const img = await loadImage(el.imageUrl);
+    const rad = Math.min(el.borderRadius || 0, el.width / 2, el.height / 2);
+    if (rad) {
+      ctx.save();
+      ctx.beginPath();
+      roundRect(ctx, el.x, el.y, el.width, el.height, rad);
+      ctx.clip();
+    }
     if (img) {
       const fit = el.imageFit ?? 'cover';
       if (fit === 'fill') ctx.drawImage(img, el.x, el.y, el.width, el.height);
@@ -163,10 +170,14 @@ async function drawElement(
       ctx.fillStyle = '#f1f5f9';
       ctx.fillRect(el.x, el.y, el.width, el.height);
     }
+    if (rad) ctx.restore();
     if (hasStroke) {
+      const sw = el.strokeWidth || 1;
       ctx.strokeStyle = el.strokeColor!;
-      ctx.lineWidth = el.strokeWidth || 1;
-      ctx.strokeRect(el.x, el.y, el.width, el.height);
+      ctx.lineWidth = sw;
+      ctx.beginPath();
+      roundRect(ctx, el.x + sw / 2, el.y + sw / 2, el.width - sw, el.height - sw, Math.max(0, rad - sw / 2));
+      ctx.stroke();
     }
   } else if (el.type === 'table' && el.tableData) {
     const rows = el.tableData.length;

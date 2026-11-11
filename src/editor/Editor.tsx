@@ -181,6 +181,13 @@ export function Editor(props: EditorProps) {
     }
   });
   const [selectedPages, setSelectedPages] = useState<string[]>([]);
+  /** Insertion point between two page thumbnails (index of the new page). */
+  const [insertGap, setInsertGapState] = useState<number | null>(null);
+  const insertGapRef = useRef<number | null>(null);
+  const setInsertGap = (v: number | null) => {
+    insertGapRef.current = v;
+    setInsertGapState(v);
+  };
   const [lastPageClick, setLastPageClick] = useState<number | null>(null);
   const [ribbonCollapsed, setRibbonCollapsedState] = useState(() => {
     try {
@@ -480,6 +487,8 @@ export function Editor(props: EditorProps) {
   const addPage = (after = safePageIndex) => {
     const d = docRef.current;
     const np: PageData = { id: uid('page'), name: '', background: '#ffffff', backgroundPattern: 'none', elements: [] };
+    const ref = d.pages[Math.max(0, after)];
+    if (ref?.orientation) np.orientation = ref.orientation;
     const pages = [...d.pages];
     pages.splice(after + 1, 0, np);
     commit({ ...d, pages }, t('act.pageAdd'));
@@ -487,6 +496,9 @@ export function Editor(props: EditorProps) {
     setEditingMaster(false);
     notify(t('n.pageAdded'));
   };
+
+  const addPageRef = useRef(addPage);
+  addPageRef.current = addPage;
 
   const duplicatePage = (idx = safePageIndex) => {
     const d = docRef.current;
@@ -733,6 +745,13 @@ export function Editor(props: EditorProps) {
       const tag = tg?.tagName?.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || tg?.isContentEditable) return;
       if (document.querySelector('[data-modal-open]')) return;
+      if (insertGapRef.current !== null && (k === 'enter' || k === 'escape')) {
+        e.preventDefault();
+        const gap = insertGapRef.current;
+        setInsertGap(null);
+        if (k === 'enter') addPageRef.current(gap - 1);
+        return;
+      }
       if (mod && k === 'z') {
         e.preventDefault();
         if (e.shiftKey) redo();
@@ -1708,7 +1727,9 @@ export function Editor(props: EditorProps) {
                 </div>
               </div>
             )}
-            <div className="flex-1 overflow-y-auto op-scroll p-3 space-y-3">
+            <div className="flex-1 overflow-y-auto op-scroll p-3" onMouseDown={(e) => {
+              if (!(e.target as HTMLElement).closest('[data-page-gap]')) setInsertGap(null);
+            }}>
               <button
                 onClick={() => setEditingMaster(!editingMaster)}
                 className={`w-full rounded-lg border px-2 py-1.5 text-xs font-semibold flex items-center gap-1.5 ${
@@ -1718,6 +1739,7 @@ export function Editor(props: EditorProps) {
                 <Layers className="w-3.5 h-3.5" /> {t('pg.master')}
                 {!!doc.master?.elements.length && <span className="ms-auto text-[10px] opacity-70">{doc.master.elements.length}</span>}
               </button>
+              <PageGap index={0} active={insertGap === 0} onSelect={setInsertGap} onInsert={(g) => { setInsertGap(null); addPage(g - 1); }} label={t('pg.gapTip')} enter={t('pg.gapEnter')} />
               {doc.pages.map((pg, i) => {
                 const checked = selectedPages.includes(pg.id);
                 const land = pageOrientation(doc, pg) === 'landscape';
@@ -1737,7 +1759,10 @@ export function Editor(props: EditorProps) {
                     }}
                   >
                     <button
-                      onClick={(e) => onThumbClick(e, i)}
+                      onClick={(e) => {
+                        setInsertGap(null);
+                        onThumbClick(e, i);
+                      }}
                       className={`w-full rounded-lg p-1.5 border-2 transition ${
                         checked ? 'border-brand-500 bg-brand-100/60' : i === safePageIndex && !editingMaster ? 'border-brand-600 bg-brand-50' : 'border-transparent hover:border-slate-300'
                       }`}
@@ -1772,6 +1797,7 @@ export function Editor(props: EditorProps) {
                         <Trash2 className="w-3 h-3" />
                       </MiniBtn>
                     </div>
+                    <PageGap index={i + 1} active={insertGap === i + 1} onSelect={setInsertGap} onInsert={(g) => { setInsertGap(null); addPage(g - 1); }} label={t('pg.gapTip')} enter={t('pg.gapEnter')} />
                   </div>
                 );
               })}
@@ -2027,6 +2053,56 @@ export function Editor(props: EditorProps) {
 
 function clampZoom(z: number) {
   return Math.min(4, Math.max(0.15, z));
+}
+
+/** Thin zone between two page thumbnails: hover shows a line, click selects it, Enter adds a page there. */
+function PageGap({
+  index,
+  active,
+  onSelect,
+  onInsert,
+  label,
+  enter
+}: {
+  index: number;
+  active: boolean;
+  onSelect: (i: number) => void;
+  onInsert: (i: number) => void;
+  label: string;
+  enter: string;
+}) {
+  return (
+    <div
+      data-page-gap
+      role="button"
+      tabIndex={-1}
+      title={label}
+      onClick={() => onSelect(index)}
+      onDoubleClick={() => onInsert(index)}
+      className="group/gap relative h-3 cursor-pointer"
+    >
+      <div
+        className={`absolute inset-x-1 top-1/2 -translate-y-1/2 rounded-full transition-all ${
+          active ? 'h-[3px] bg-brand-600' : 'h-[2px] bg-transparent group-hover/gap:bg-brand-300'
+        }`}
+      />
+      {active && (
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex items-center justify-center gap-1 pointer-events-none">
+          <button
+            className="pointer-events-auto w-5 h-5 rounded-full bg-brand-600 text-white text-xs leading-none shadow flex items-center justify-center hover:bg-brand-700"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInsert(index);
+            }}
+            title={label}
+          >
+            +
+          </button>
+          <span className="px-1.5 py-0.5 rounded bg-brand-600 text-white text-[10px] font-semibold shadow">↵ {enter}</span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function safeName(s: string) {

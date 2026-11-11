@@ -495,6 +495,45 @@ export function ElementPanel({
       )}
 
       {el.type === 'image' && (
+        <div className="space-y-1.5 pt-2 border-t border-slate-200">
+          <div className="text-[11px] font-semibold text-slate-600">{t('insp.imgRound')}</div>
+          <div className="grid grid-cols-5 gap-1">
+            {(
+              [
+                ['none', 0],
+                ['light', 0.06],
+                ['medium', 0.12],
+                ['strong', 0.25],
+                ['oval', 0.5]
+              ] as const
+            ).map(([k, f]) => {
+              const r = Math.round(Math.min(el.width, el.height) * f);
+              const on = Math.abs((el.borderRadius || 0) - r) <= 1;
+              return (
+                <button
+                  key={k}
+                  title={t(`insp.round.${k}`)}
+                  onClick={() => patch({ borderRadius: r || undefined }, t('act.radius'))}
+                  className={`h-8 rounded-md border flex items-center justify-center ${on ? 'border-brand-600 bg-brand-50' : 'border-slate-200 hover:border-brand-300'}`}
+                >
+                  <span className="block w-5 h-4 bg-brand-600/70" style={{ borderRadius: k === 'oval' ? '50%' : f * 16 }} />
+                </button>
+              );
+            })}
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={Math.round(Math.min(el.width, el.height) / 2)}
+            value={el.borderRadius || 0}
+            onChange={(e) => patch({ borderRadius: Number(e.target.value) || undefined }, t('act.radius'), 'rad')}
+            className="w-full"
+            aria-label={t('insp.imgRound')}
+          />
+        </div>
+      )}
+
+      {el.type === 'image' && (
         <button onClick={onReplaceImage} className="w-full px-3 py-2 text-xs font-semibold rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-800 inline-flex items-center justify-center gap-1.5">
           <ImagePlus className="w-4 h-4" /> {t('insp.replaceImage')}
         </button>
