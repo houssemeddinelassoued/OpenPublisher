@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+/* Palette inspired by the OpenPublisher logo (teal / aqua) */
+@theme {
+  --color-brand-50: #ecfbfb;
+  --color-brand-100: #d0f4f4;
+  --color-brand-200: #a6e8ea;
+  --color-brand-300: #6fd4d9;
+  --color-brand-400: #4cc3cc;
+  --color-brand-500: #23a5b0;
+  --color-brand-600: #158892;
+  --color-brand-700: #127a80;
+  --color-brand-800: #0f5f66;
+  --color-brand-900: #0b4f5c;
+  --color-brand-950: #073840;
+  --color-aqua: #5ee0d6;
+}
+
+html, body, #root { height: 100%; }
+body { background: #f4f8f8; color: #0f172a; font-family: Inter, "Segoe UI", system-ui, -apple-system, "Noto Sans Arabic", Tahoma, sans-serif; }
+[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Sans Arabic", system-ui, sans-serif; }
+.op-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.op-scroll::-webkit-scrollbar-thumb { background: #b7d3d5; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }

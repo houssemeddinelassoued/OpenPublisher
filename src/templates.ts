@@ -1,4 +1,4 @@
-import type { CanvasElementData, PageData, PubDocument } from './App';
+import type { CanvasElementData, PageData, PubDocument } from './core/model';
 
 let counter = 0;
 const uid = () => `t${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -59,9 +59,10 @@ function doc(
 const PW = 794, PH = 1123; // A4 portrait @ 96 dpi
 const LW = 1123, LH = 794; // A4 landscape
 
-export type TemplateGroup = 'Classe' | 'Parents' | 'Récompenses' | 'Organisation';
+export type TemplateGroup = 'class' | 'parents' | 'rewards' | 'organisation';
 
 export interface TemplateInfo {
+  key: string;
   group: TemplateGroup;
   color: string;
   description: string;
@@ -69,9 +70,9 @@ export interface TemplateInfo {
 }
 
 export function buildTemplates(): TemplateInfo[] {
-  return [
+  const list: TemplateInfo[] = [
     {
-      group: 'Classe', color: '#2563eb', description: 'Pour afficher une consigne, une règle ou une information.',
+      key: 'poster', group: 'class', color: '#2563eb', description: 'Pour afficher une consigne, une règle ou une information.',
       doc: doc('Affiche de classe', 'Affiche • 1 page', 'portrait', [
         page('Affiche', [
           Bd(PW, PH, '#2563eb'),
@@ -86,7 +87,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Classe', color: '#7c3aed', description: 'Un journal de 2 pages avec articles, bravos et dates.',
+      key: 'journal', group: 'class', color: '#7c3aed', description: 'Un journal de 2 pages avec articles, bravos et dates.',
       doc: doc('Journal de classe', 'Journal • 2 pages', 'portrait', [
         page('Une', [
           R(0, 0, PW, 170, '#7c3aed'),
@@ -115,7 +116,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Classe', color: '#4f46e5', description: 'Une feuille d’exercices avec nom, date et consignes.',
+      key: 'worksheet', group: 'class', color: '#4f46e5', description: 'Une feuille d’exercices avec nom, date et consignes.',
       doc: doc('Fiche d’exercices', 'Fiche • 1 page', 'portrait', [
         page('Fiche', [
           R(40, 40, PW - 80, 70, '#eef2ff', { stroke: '#a5b4fc', sw: 2, radius: 12 }),
@@ -130,7 +131,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Parents', color: '#059669', description: 'Lettre officielle avec en-tête et coupon-réponse.',
+      key: 'letter', group: 'parents', color: '#059669', description: 'Lettre officielle avec en-tête et coupon-réponse.',
       doc: doc('Lettre aux parents', 'Lettre • 1 page', 'portrait', [
         page('Lettre', [
           R(0, 0, PW, 14, '#059669'),
@@ -148,7 +149,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Parents', color: '#ea580c', description: 'Invitation colorée pour une fête, une kermesse ou une sortie.',
+      key: 'invite', group: 'parents', color: '#ea580c', description: 'Invitation colorée pour une fête, une kermesse ou une sortie.',
       doc: doc('Invitation (fête / kermesse)', 'Invitation • 1 page', 'portrait', [
         page('Invitation', [
           Bd(PW, PH, '#ea580c', 'ornate'),
@@ -164,7 +165,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Récompenses', color: '#ca8a04', description: 'Un diplôme paysage à remplir avec le nom de l’élève.',
+      key: 'diploma', group: 'rewards', color: '#ca8a04', description: 'Un diplôme paysage à remplir avec le nom de l’élève.',
       doc: doc('Diplôme / Certificat', 'Certificat • 1 page', 'landscape', [
         page('Diplôme', [
           Bd(LW, LH, '#ca8a04', 'ornate'),
@@ -179,7 +180,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Récompenses', color: '#db2777', description: 'Suivi de la semaine avec tableau et smileys.',
+      key: 'behaviour', group: 'rewards', color: '#db2777', description: 'Suivi de la semaine avec tableau et smileys.',
       doc: doc('Tableau de comportement', 'Suivi • 1 page', 'landscape', [
         page('Comportement', [
           T(40, 30, LW - 80, 60, 'MON TABLEAU DE COMPORTEMENT', { size: 40, color: '#9d174d', bold: true, align: 'center', font: FUN }),
@@ -201,7 +202,7 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     },
     {
-      group: 'Organisation', color: '#0891b2', description: 'Tableau de la semaine à compléter avec les horaires.',
+      key: 'timetable', group: 'organisation', color: '#0891b2', description: 'Tableau de la semaine à compléter avec les horaires.',
       doc: doc('Emploi du temps', 'Planning • 1 page', 'landscape', [
         page('Emploi du temps', [
           T(40, 25, LW - 80, 60, 'EMPLOI DU TEMPS DE LA CLASSE', { size: 38, color: '#155e75', bold: true, align: 'center', font: FUN }),
@@ -223,4 +224,19 @@ export function buildTemplates(): TemplateInfo[] {
       ])
     }
   ];
+  // Journal: page number + footer on the master page, repeated on every page.
+  const journal = list.find((x) => x.key === 'journal');
+  if (journal) {
+    journal.doc.master = {
+      elements: [
+        R(40, PH - 52, PW - 80, 2, '#c4b5fd'),
+        {
+          id: uid(), type: 'pagenum', x: PW / 2 - 90, y: PH - 44, width: 180, height: 26, zIndex: 3,
+          fontFamily: SANS, fontSize: 12, fontColor: '#5b21b6', textAlign: 'center'
+        },
+        T(40, PH - 44, 260, 26, 'Le journal de la classe', { size: 11, color: '#7c3aed', italic: true })
+      ]
+    };
+  }
+  return list;
 }
