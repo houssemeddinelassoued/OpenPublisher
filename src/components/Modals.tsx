@@ -122,7 +122,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <Keyboard className="w-4 h-4" /> {t('help.kbd')}
         </div>
         <ul className="text-sm text-brand-900/90 grid sm:grid-cols-2 gap-y-1 gap-x-4" dir="auto">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
             <li key={i}>• {t(`help.k${i}`)}</li>
           ))}
         </ul>

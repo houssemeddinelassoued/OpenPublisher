@@ -23,6 +23,7 @@ import {
 import { parseFallbackDocumentFile, parsePublisherBinaryBuffer } from './core/importers';
 import { buildTemplates, type TemplateInfo } from './templates';
 import { APP_VERSION } from './meta';
+import { createHistory, type HistoryStore } from './editor/history';
 
 const AUTO_VERSION_MS = 10 * 60 * 1000;
 
@@ -51,6 +52,26 @@ export default function App() {
   const saveTimers = useRef(new Map<string, number>());
   const docsRef = useRef(docs);
   docsRef.current = docs;
+  /** Undo / redo stacks per document, kept for the whole session. */
+  const histories = useRef(new Map<string, HistoryStore>());
+  const historyFor = (id: string) => {
+    let h = histories.current.get(id);
+    if (!h) histories.current.set(id, (h = createHistory()));
+    return h;
+  };
+  /** Documents edited since their last save point (Ctrl+S, closing the document). */
+  const [dirty, setDirty] = useState<Set<string>>(() => new Set());
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const saveFailed = useRef(false);
+  const markDirty = (id: string, on: boolean) =>
+    setDirty((s) => {
+      if (s.has(id) === on) return s;
+      const n = new Set(s);
+      if (on) n.add(id);
+      else n.delete(id);
+      return n;
+    });
 
   const notify = useCallback((msg: string) => {
     setToast(msg);
@@ -70,30 +91,42 @@ export default function App() {
     if (prev) window.clearTimeout(prev);
     timers.set(
       doc.id,
-      window.setTimeout(() => {
+      window.setTimeout(async () => {
         timers.delete(doc.id);
-        saveDocument(doc);
+        const ok = await saveDocument(doc);
+        if (!ok && !saveFailed.current) {
+          saveFailed.current = true;
+          notify(t('n.saveFailed'));
+        }
       }, 300)
     );
-  }, []);
+  }, [notify, t]);
 
-  const flushSave = useCallback((doc: PubDocument) => {
+  const flushSave = useCallback(async (doc: PubDocument) => {
     const prev = saveTimers.current.get(doc.id);
     if (prev) window.clearTimeout(prev);
     saveTimers.current.delete(doc.id);
-    return saveDocument(doc);
-  }, []);
+    const ok = await saveDocument(doc);
+    if (!ok) notify(t('n.saveFailed'));
+    return ok;
+  }, [notify, t]);
 
-  // Make sure pending edits are written when the window closes.
+  // Closing the window / tab: write pending edits and warn about unsaved work.
   useEffect(() => {
-    const onUnload = () => {
-      for (const id of saveTimers.current.keys()) {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const pending = [...saveTimers.current.keys()];
+      for (const id of pending) {
         const d = docsRef.current.find((x) => x.id === id);
         if (d) saveDocument(d);
       }
+      if (dirtyRef.current.size > 0 || pending.length > 0 || saveFailed.current) {
+        // The browser shows its own confirmation dialog ("Leave site? Changes may not be saved").
+        e.preventDefault();
+        e.returnValue = '';
+      }
     };
-    window.addEventListener('beforeunload', onUnload);
-    return () => window.removeEventListener('beforeunload', onUnload);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, []);
 
   const upsert = useCallback(
@@ -173,6 +206,8 @@ export default function App() {
   const deleteDoc = async (d: PubDocument) => {
     if (!window.confirm(t('common.confirmDeleteDoc', { t: d.title }))) return;
     await deleteDocument(d.id);
+    histories.current.delete(d.id);
+    markDirty(d.id, false);
     setDocs((list) => list.filter((x) => x.id !== d.id));
     notify(t('n.docDeleted'));
   };
@@ -265,10 +300,28 @@ export default function App() {
 
   const restoreVersion = async (v: DocVersion) => {
     const current = docsRef.current.find((d) => d.id === v.docId);
-    if (current) await addVersion(current, 'restore');
+    if (current) {
+      await addVersion(current, 'restore');
+      // Restoring is undoable from the editor too.
+      const h = historyFor(current.id);
+      h.past.push({ doc: current, label: t('act.restore'), at: Date.now() });
+      h.future = [];
+      h.lastKey = '';
+    }
     const restored: PubDocument = { ...cloneDoc(v.doc), updatedAt: new Date().toISOString() };
     upsert(restored, true);
+    markDirty(restored.id, false);
     notify(t('n.restored'));
+  };
+
+  /** Save point: write now, keep a version, clear the "unsaved" state. */
+  const saveNow = async (doc: PubDocument) => {
+    const ok = await flushSave(doc);
+    if (!ok) return;
+    saveFailed.current = false;
+    await addVersion(doc, 'manual');
+    markDirty(doc.id, false);
+    notify(t('n.savedVersion'));
   };
 
   // ------------------------------------------------------------- editor
@@ -286,8 +339,11 @@ export default function App() {
 
   const closeEditor = async () => {
     if (editorDoc) {
-      await flushSave(editorDoc);
-      snapshot(editorDoc, 'close');
+      const ok = await flushSave(editorDoc);
+      if (ok) {
+        await snapshot(editorDoc, 'close');
+        markDirty(editorDoc.id, false);
+      }
     }
     setEditorId(null);
   };
@@ -317,7 +373,13 @@ export default function App() {
         <Editor
           key={editorDoc.id}
           doc={editorDoc}
-          onChange={(d) => upsert(d)}
+          history={historyFor(editorDoc.id)}
+          dirty={dirty.has(editorDoc.id)}
+          onSave={() => saveNow(docsRef.current.find((d) => d.id === editorDoc.id) ?? editorDoc)}
+          onChange={(d) => {
+            upsert(d);
+            markDirty(d.id, true);
+          }}
           onClose={closeEditor}
           onImportFile={() => fileInputRef.current?.click()}
           onShowVersions={() => setVersionsOpen(true)}

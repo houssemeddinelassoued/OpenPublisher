@@ -54,12 +54,14 @@ async function getAll<T>(store: string): Promise<T[]> {
   }
 }
 
-async function put<T>(store: string, value: T): Promise<void> {
+async function put<T>(store: string, value: T): Promise<boolean> {
   try {
     const db = await openDatabase();
     await reqToPromise(db.transaction(store, 'readwrite').objectStore(store).put(value));
+    return true;
   } catch (err) {
     console.error('[OpenPublisher] save failed', err);
+    return false;
   }
 }
 

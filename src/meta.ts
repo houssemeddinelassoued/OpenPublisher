@@ -1,10 +1,10 @@
 export const APP_NAME = 'OpenPublisher';
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 export const APP_AUTHOR = 'Houssem Eddine Lassoued';
 export const APP_EMAIL = 'houssemeddine.lassoued@gmail.com';
 /** Fill in to show the links in "About" (left empty = hidden). */
-export const APP_FACEBOOK = '';
-export const APP_LINKEDIN = '';
+export const APP_FACEBOOK = 'https://www.facebook.com/HoussemE.Lassoued/';
+export const APP_LINKEDIN = 'https://www.linkedin.com/in/houssemeddinelassoued/';
 export const APP_COMPANY = 'NQ Open Initiative';
 export const APP_COMPANY_FULL = 'National Quantum — NQ Open Initiative';
 export const APP_YEAR = new Date().getFullYear();
