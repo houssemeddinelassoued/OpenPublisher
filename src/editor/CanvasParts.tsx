@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CanvasElementData, PubDocument } from '../core/model';
 import { MM_TO_PX, elementBounds } from '../core/model';
-import { findEl, pageOfElement, type FrameFlow } from '../core/textflow';
+import { findEl, framePadding, pageOfElement, type FrameFlow } from '../core/textflow';
 import { ElementContent, TableView, elementStyle } from './ElementView';
 import { HANDLES, HANDLE_CURSOR, type Handle } from './geometry';
 
@@ -29,6 +29,7 @@ export function EditableElement({
   onCell: (r: number, c: number, v: string) => void;
 }) {
   const fs = el.fontSize || 16;
+  const [pl, pt, pr, pb] = framePadding(el);
   return (
     <div
       onMouseDown={onMouseDown}
@@ -56,8 +57,8 @@ export function EditableElement({
             fontWeight: el.bold ? 700 : 400,
             fontStyle: el.italic ? 'italic' : 'normal',
             textAlign: el.textAlign === 'justify' ? 'justify' : el.textAlign || 'left',
-            lineHeight: 1.32,
-            padding: 6
+            lineHeight: el.paras ? 1.2 : 1.32,
+            padding: `${pt}px ${pr}px ${pb}px ${pl}px`
           }}
         />
       ) : el.type === 'table' ? (

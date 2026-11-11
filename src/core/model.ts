@@ -8,6 +8,42 @@ export type ElementType = 'text' | 'image' | 'shape' | 'table' | 'pagenum' | 'bo
 /** 'rectangle' | 'circle' | 'line' are native; every other variant is an SVG path (see shapes.ts). */
 export type ShapeVariant = 'rectangle' | 'circle' | 'line' | (string & {});
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
+export type VerticalAlign = 'top' | 'middle' | 'bottom';
+
+/**
+ * A piece of text with its own formatting (rich text, e.g. imported from
+ * Publisher). Missing fields fall back to the element's own style. The
+ * concatenated run texts always equal the element's `text`.
+ */
+export interface TextRun {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  fontSize?: number;
+  fontColor?: string;
+  fontFamily?: string;
+  /** 1 = superscript, -1 = subscript. */
+  script?: 1 | -1;
+}
+
+/** Formatting of one paragraph (paragraphs are separated by '\n'). */
+export interface ParaFormat {
+  align?: TextAlign;
+  /** Line spacing as a multiple of the font's single line height. */
+  lineSpacing?: number;
+  /** Exact line height in px (overrides lineSpacing). */
+  lineHeightPx?: number;
+  spaceBefore?: number;
+  spaceAfter?: number;
+  /** Left indent (px) of every line. */
+  indent?: number;
+  /** Extra indent of the first line (negative = hanging indent). */
+  firstIndent?: number;
+  rightIndent?: number;
+  /** Bullet character drawn before the first line. */
+  bullet?: string;
+}
 
 export interface CanvasElementData {
   id: string;
@@ -30,6 +66,14 @@ export interface CanvasElementData {
   textAlign?: TextAlign;
   /** Linked text frame (Publisher "story autoflow"): overflow continues into this frame. */
   nextFrameId?: string;
+  /** Rich text: formatted pieces of `text` (optional). */
+  runs?: TextRun[];
+  /** Per-paragraph formatting (optional, index = paragraph number). */
+  paras?: ParaFormat[];
+  /** Vertical position of the text inside its frame (default top). */
+  vAlign?: VerticalAlign;
+  /** Inner text margins in px: left, top, right, bottom (default 6 each). */
+  padding?: [number, number, number, number];
   // Shape / box
   fillColor?: string;
   strokeColor?: string;
@@ -39,6 +83,10 @@ export interface CanvasElementData {
   opacity?: number;
   // Image
   imageUrl?: string;
+  /** How the picture fills its frame: cover (crop, default), fill (stretch) or contain. */
+  imageFit?: 'cover' | 'fill' | 'contain';
+  /** Picture name (e.g. original file name of an imported picture). */
+  imageName?: string;
   // Table
   rows?: number;
   cols?: number;
@@ -99,7 +147,14 @@ export interface DocVersion {
   title: string;
   savedAt: string;
   reason: 'open' | 'auto' | 'close' | 'manual' | 'restore';
-  doc: PubDocument;
+  /** Legacy versions keep the full document inline. */
+  doc?: PubDocument;
+  /** Compressed snapshot (pictures stored once in the asset store). */
+  packed?: Blob;
+  packedType?: 'gzip' | 'json';
+  pageCount?: number;
+  docUpdatedAt?: string;
+  assetIds?: string[];
 }
 
 /** A template created by the user from a document or from some pages. */
@@ -125,6 +180,10 @@ export interface PubImportReport {
     orientation: Orientation;
   };
   warnings: string[];
+  /** Publisher import details. */
+  stats?: { pages: number; textFrames: number; tables: number; pictures: number; shapes: number; masterElements: number; unsupportedPictures: number };
+  /** Fonts used by the document that are not installed on this computer. */
+  missingFonts?: string[];
   generatedDoc: PubDocument;
 }
 

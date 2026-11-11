@@ -13,6 +13,7 @@ import {
   deleteFolderRecord,
   downloadBlob,
   listVersions,
+  loadVersionDoc,
   loadDocuments,
   loadFolders,
   markBackupDone,
@@ -34,7 +35,7 @@ const AUTO_VERSION_MS = 10 * 60 * 1000;
 /** Saves a version unless the latest snapshot already matches this state. */
 async function snapshot(doc: PubDocument, reason: DocVersion['reason']) {
   const [latest] = await listVersions(doc.id);
-  if (latest && latest.doc.updatedAt === doc.updatedAt) return;
+  if (latest && (latest.docUpdatedAt ?? latest.doc?.updatedAt) === doc.updatedAt) return;
   await addVersion(doc, reason);
 }
 
@@ -304,13 +305,15 @@ export default function App() {
         notify(t('n.imported'));
         return;
       }
+      if (ext === 'pub') notify(t('n.importing'));
       const report =
         ext === 'pub' ? await parsePublisherBinaryBuffer(file.name, await file.arrayBuffer()) : await parseFallbackDocumentFile(file);
       const d = { ...report.generatedDoc, id: uid('doc'), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
       upsert(d, true);
       setEditorId(d.id);
       setImportReport(report);
-    } catch {
+    } catch (err) {
+      console.error('[OpenPublisher] import failed', err);
       notify(t('n.importFail'));
     }
   };
@@ -348,7 +351,7 @@ export default function App() {
       h.future = [];
       h.lastKey = '';
     }
-    const restored: PubDocument = { ...cloneDoc(v.doc), updatedAt: new Date().toISOString() };
+    const restored: PubDocument = { ...cloneDoc(await loadVersionDoc(v)), updatedAt: new Date().toISOString() };
     upsert(restored, true);
     markDirty(restored.id, false);
     notify(t('n.restored'));

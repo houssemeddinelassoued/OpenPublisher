@@ -1,9 +1,39 @@
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { CanvasElementData, PubDocument } from '../core/model';
 import { getPageDims, masterElementsFor } from '../core/model';
 import { getShape } from '../core/shapes';
-import { LINE_HEIGHT, TEXT_PAD, computeDocumentFlows, type FrameFlow } from '../core/textflow';
+import { computePageFlows, layoutText, type FrameFlow } from '../core/textflow';
 import { pageNumberLabel } from '../core/render';
+
+/** Text lines positioned exactly as computed by the layout engine. */
+export function TextLines({ flow }: { flow: FrameFlow }) {
+  const [pl, pt] = flow.pad;
+  return (
+    <>
+      {flow.lines.map((line, li) =>
+        line.segs.map((s, si) => (
+          <span
+            key={`${li}-${si}`}
+            style={{
+              position: 'absolute',
+              left: pl + s.x,
+              top: pt + flow.offsetY + line.y + line.baseline - s.asc + s.style.shift,
+              font: s.style.font,
+              lineHeight: `${s.asc + s.desc}px`,
+              color: s.style.color,
+              whiteSpace: 'pre',
+              textDecoration: s.style.underline ? 'underline' : undefined,
+              direction: line.rtl ? 'rtl' : 'ltr',
+              unicodeBidi: 'isolate'
+            }}
+          >
+            {s.text.replace(/\t/g, '    ')}
+          </span>
+        ))
+      )}
+    </>
+  );
+}
 
 /** Visual content of one element, filling its (unrotated) box. */
 export const ElementContent = memo(function ElementContent({
@@ -17,40 +47,17 @@ export const ElementContent = memo(function ElementContent({
 }) {
   const hasStroke = (el.strokeWidth ?? 0) > 0 && el.strokeColor && el.strokeColor !== 'transparent';
   if (el.type === 'text' || el.type === 'pagenum') {
-    const fs = el.fontSize || 16;
-    const lines = el.type === 'pagenum' ? [{ text: pageText || '', endsPara: true }] : flow?.lines ?? [];
+    const f = el.type === 'pagenum' ? layoutText(el, pageText || '') : flow;
     return (
       <div
-        className="w-full h-full overflow-hidden box-border"
-        dir="auto"
-        style={{
-          backgroundColor: el.fillColor && el.fillColor !== 'transparent' ? el.fillColor : 'transparent',
-          border: hasStroke ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none',
-          fontFamily: el.fontFamily || 'Inter, sans-serif',
-          fontSize: fs,
-          color: el.fontColor || '#0f172a',
-          fontWeight: el.bold ? 700 : 400,
-          fontStyle: el.italic ? 'italic' : 'normal',
-          textDecoration: el.underline ? 'underline' : 'none',
-          lineHeight: `${fs * LINE_HEIGHT}px`,
-          padding: TEXT_PAD - (hasStroke ? el.strokeWidth! : 0)
-        }}
+        className="w-full h-full overflow-hidden relative"
+        dir="ltr"
+        style={{ backgroundColor: el.fillColor && el.fillColor !== 'transparent' ? el.fillColor : 'transparent' }}
       >
-        {lines.map((l, i) => (
-          <div
-            key={i}
-            style={{
-              whiteSpace: 'pre',
-              height: fs * LINE_HEIGHT,
-              textAlign: (el.textAlign === 'justify' ? 'justify' : el.textAlign || 'left') as React.CSSProperties['textAlign'],
-              textAlignLast: el.textAlign === 'justify' && !l.endsPara ? 'justify' : undefined,
-              direction: 'ltr',
-              unicodeBidi: 'plaintext'
-            }}
-          >
-            {l.text || ' '}
-          </div>
-        ))}
+        {f && <TextLines flow={f} />}
+        {hasStroke && (
+          <div className="absolute inset-0 pointer-events-none" style={{ border: `${el.strokeWidth}px solid ${el.strokeColor}` }} />
+        )}
       </div>
     );
   }
@@ -93,8 +100,8 @@ export const ElementContent = memo(function ElementContent({
         src={el.imageUrl}
         alt=""
         draggable={false}
-        className="w-full h-full object-cover select-none pointer-events-none box-border"
-        style={{ border: hasStroke ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none' }}
+        className="w-full h-full select-none pointer-events-none box-border"
+        style={{ border: hasStroke ? `${el.strokeWidth}px solid ${el.strokeColor}` : 'none', objectFit: el.imageFit ?? 'cover' }}
       />
     );
   }
@@ -184,8 +191,35 @@ export function elementStyle(el: CanvasElementData): React.CSSProperties {
   };
 }
 
+/** Renders its children only once they scroll near the viewport. */
+export function LazyMount({ width, height, children }: { width: number; height: number; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (visible) return;
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisible(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: '600px 0px' }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible]);
+  return visible ? <>{children}</> : <div ref={ref} style={{ width, height }} className="bg-white shadow-sm" />;
+}
+
 /** Static, non-interactive page rendering (thumbnails, hub cards). */
-export const PagePreview = memo(function PagePreview({
+export const PagePreview = memo(
+  function PagePreview({
   doc,
   pageIndex,
   width,
@@ -201,7 +235,7 @@ export const PagePreview = memo(function PagePreview({
   const page0 = doc.pages[pageIndex] || doc.pages[0];
   const dims = getPageDims(doc, page0);
   const scale = width / dims.width;
-  const f = useMemo(() => flows ?? computeDocumentFlows(doc), [flows, doc]);
+  const f = useMemo(() => flows ?? computePageFlows(doc, pageIndex), [flows, doc, pageIndex]);
   const page = doc.pages[pageIndex] || doc.pages[0];
   if (!page) return null;
   const pageText = pageNumberLabel(pageIndex, doc.pages.length, pageLabel);
@@ -235,4 +269,17 @@ export const PagePreview = memo(function PagePreview({
       </div>
     </div>
   );
-});
+},
+  (a, b) => {
+    if (a.width !== b.width || a.pageIndex !== b.pageIndex || a.pageLabel !== b.pageLabel) return false;
+    const pa = a.doc.pages[a.pageIndex];
+    const pb = b.doc.pages[b.pageIndex];
+    if (a.doc === b.doc) return a.flows === b.flows;
+    if (pa !== pb || a.doc.master !== b.doc.master || a.doc.pages.length !== b.doc.pages.length) return false;
+    if (a.doc.orientation !== b.doc.orientation || a.doc.widthMm !== b.doc.widthMm || a.doc.heightMm !== b.doc.heightMm) return false;
+    // Same page objects: equal unless a linked text flow on this page changed.
+    for (const e of pb?.elements ?? []) if (e.type === 'text' && a.flows?.get(e.id) !== b.flows?.get(e.id)) return false;
+    for (const e of b.doc.master?.elements ?? []) if (e.type === 'text' && a.flows?.get(e.id) !== b.flows?.get(e.id)) return false;
+    return true;
+  }
+);

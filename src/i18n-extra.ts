@@ -88,7 +88,25 @@ export const EXTRA_FR: Dict = {
   'about.openOnline': 'Ouvrir',
   'help.k7': 'Ctrl ou Maj + clic : sélection multiple (objets et pages)',
   'help.k11': 'Ctrl + V : coller une image (navigateur, PowerPoint, Paint…)',
-  'help.k12': 'Ctrl + F1 : masquer / afficher le ruban'
+  'help.k12': 'Ctrl + F1 : masquer / afficher le ruban',
+  'n.importing': "Import du fichier Publisher en cours…",
+  'imp.pubText': "« {f} » a été converti avec ses pages, ses textes mis en forme, ses tableaux et ses images.",
+  'imp.pages': "Pages",
+  'imp.format': "Format",
+  'imp.frames': "Zones de texte",
+  'imp.tables': "Tableaux",
+  'imp.pictures': "Images",
+  'imp.master': "Page maître",
+  'imp.yes': "Oui",
+  'imp.no': "Non",
+  'imp.fonts': "Polices absentes de cet ordinateur : {f}. Une police proche est utilisée ; installez-les pour un rendu identique à Publisher.",
+  'imp.metafiles': "{n} image(s) au format EMF/WMF/TIFF ne peuvent pas être affichées. Remplacez-les par une image PNG ou JPEG.",
+  'imp.check': "Vérifiez les pages avant d’imprimer : de légers écarts de mise en page restent possibles.",
+  'vw.auto': "auto",
+  'vw.fitTip': "Ajuster la page à l’écran (automatique quand le ruban est masqué)",
+  'rb.vTop': "Texte en haut du cadre",
+  'rb.vMiddle': "Texte centré verticalement",
+  'rb.vBottom': "Texte en bas du cadre"
 };
 
 export const EXTRA_EN: Dict = {
@@ -142,7 +160,25 @@ export const EXTRA_EN: Dict = {
   'about.openOnline': 'Open',
   'help.k7': 'Ctrl or Shift + click: multi-select (objects and pages)',
   'help.k11': 'Ctrl + V: paste a picture (browser, PowerPoint, Paint…)',
-  'help.k12': 'Ctrl + F1: hide / show the ribbon'
+  'help.k12': 'Ctrl + F1: hide / show the ribbon',
+  'n.importing': "Importing the Publisher file…",
+  'imp.pubText': "“{f}” was converted with its pages, formatted text, tables and pictures.",
+  'imp.pages': "Pages",
+  'imp.format': "Size",
+  'imp.frames': "Text boxes",
+  'imp.tables': "Tables",
+  'imp.pictures': "Pictures",
+  'imp.master': "Master page",
+  'imp.yes': "Yes",
+  'imp.no': "No",
+  'imp.fonts': "Fonts not installed on this computer: {f}. A similar font is used; install them to match Publisher exactly.",
+  'imp.metafiles': "{n} picture(s) in EMF/WMF/TIFF format cannot be displayed. Replace them with a PNG or JPEG picture.",
+  'imp.check': "Check the pages before printing: small layout differences are still possible.",
+  'vw.auto': "auto",
+  'vw.fitTip': "Fit the page to the screen (automatic when the ribbon is hidden)",
+  'rb.vTop': "Text at the top of the box",
+  'rb.vMiddle': "Text centred vertically",
+  'rb.vBottom': "Text at the bottom of the box"
 };
 
 export const EXTRA_AR: Dict = {
@@ -196,5 +232,23 @@ export const EXTRA_AR: Dict = {
   'about.openOnline': 'فتح',
   'help.k7': 'Ctrl أو Shift + نقرة: تحديد متعدد (عناصر وصفحات)',
   'help.k11': 'Ctrl + V: لصق صورة (من المتصفح، PowerPoint، الرسام…)',
-  'help.k12': 'Ctrl + F1: إخفاء / إظهار الشريط'
+  'help.k12': 'Ctrl + F1: إخفاء / إظهار الشريط',
+  'n.importing': "جارٍ استيراد ملف Publisher…",
+  'imp.pubText': "تم تحويل «{f}» مع صفحاته ونصوصه المنسقة وجداوله وصوره.",
+  'imp.pages': "الصفحات",
+  'imp.format': "المقاس",
+  'imp.frames': "مربعات النص",
+  'imp.tables': "الجداول",
+  'imp.pictures': "الصور",
+  'imp.master': "الصفحة الرئيسية",
+  'imp.yes': "نعم",
+  'imp.no': "لا",
+  'imp.fonts': "خطوط غير مثبتة على هذا الحاسوب: {f}. يُستعمل خط قريب؛ ثبّتيها للحصول على عرض مطابق لـ Publisher.",
+  'imp.metafiles': "تعذّر عرض {n} صورة بصيغة EMF/WMF/TIFF. استبدليها بصورة PNG أو JPEG.",
+  'imp.check': "تحققي من الصفحات قبل الطباعة: قد تبقى فروق طفيفة في التنسيق.",
+  'vw.auto': "تلقائي",
+  'vw.fitTip': "ملاءمة الصفحة للشاشة (تلقائية عند إخفاء الشريط)",
+  'rb.vTop': "النص في أعلى الإطار",
+  'rb.vMiddle': "النص في الوسط عموديًا",
+  'rb.vBottom': "النص في أسفل الإطار"
 };

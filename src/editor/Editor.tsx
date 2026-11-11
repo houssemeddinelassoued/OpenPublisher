@@ -23,6 +23,9 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
   BringToFront,
   SendToBack,
   ArrowUp,
@@ -85,9 +88,11 @@ import { getShape } from '../core/shapes';
 import { ShapeGallery } from './ShapeGallery';
 import { SaveTemplateModal, type TemplateScope } from '../components/TemplateModal';
 import { computeDocumentFlows, findEl, unlinkReferences } from '../core/textflow';
+import { applyElementPatch } from '../core/richtext';
+import { primaryFamily } from '../core/fontmetrics';
 import { exportPagePng, exportPrintPdf, pageNumberLabel } from '../core/render';
 import { downloadBlob } from '../core/db';
-import { ElementContent, PagePreview, elementStyle } from './ElementView';
+import { ElementContent, LazyMount, PagePreview, elementStyle } from './ElementView';
 import { alignElements, readImageFile, rectsIntersect, resizeElement, smartSnap, unionBounds, type AlignOp, type Box, type Handle } from './geometry';
 import { COALESCE_MS, HISTORY_LIMIT, type HistoryStore } from './history';
 import { ContextMenu, SEP, type MenuItem } from './ContextMenu';
@@ -146,6 +151,17 @@ export function Editor(props: EditorProps) {
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [clipboard, setClipboard] = useState<CanvasElementData[]>([]);
   const [zoom, setZoom] = useState(0.8);
+  /** Zoom follows the available space (until the user zooms manually). */
+  const autoFitRef = useRef(true);
+  const [autoFit, setAutoFitState] = useState(true);
+  const setAutoFit = (v: boolean) => {
+    autoFitRef.current = v;
+    setAutoFitState(v);
+  };
+  const zoomBy = (factor: number) => {
+    setAutoFit(false);
+    setZoom((z) => clampZoom(z * factor));
+  };
   const [showRulers, setShowRulers] = useState(true);
   const [showMargins, setShowMargins] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
@@ -310,7 +326,7 @@ export function Editor(props: EditorProps) {
 
   const patchEls = useCallback(
     (ids: string[], patch: Partial<CanvasElementData> | ((e: CanvasElementData) => Partial<CanvasElementData>), r: Rec) => {
-      setLayer((els) => els.map((e) => (ids.includes(e.id) ? { ...e, ...(typeof patch === 'function' ? patch(e) : patch) } : e)), r);
+      setLayer((els) => els.map((e) => (ids.includes(e.id) ? applyElementPatch(e, typeof patch === 'function' ? patch(e) : patch) : e)), r);
     },
     [setLayer]
   );
@@ -795,6 +811,8 @@ export function Editor(props: EditorProps) {
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey) return;
       e.preventDefault();
+      autoFitRef.current = false;
+      setAutoFitState(false);
       setZoom((z) => clampZoom(z * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -813,6 +831,35 @@ export function Editor(props: EditorProps) {
     fitZoom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id, doc.widthMm, doc.heightMm, pageOrient]);
+
+  // Hiding / showing the ribbon changes the available height: fit the page
+  // to the screen again, then keep following the window size.
+  const fitRef = useRef(fitZoom);
+  fitRef.current = fitZoom;
+  useEffect(() => {
+    setAutoFit(true);
+    const id = requestAnimationFrame(() => fitRef.current());
+    return () => cancelAnimationFrame(id);
+  }, [ribbonCollapsed]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let raf = 0;
+    let last = { w: el.clientWidth, h: el.clientHeight };
+    const ro = new ResizeObserver(() => {
+      const now = { w: el.clientWidth, h: el.clientHeight };
+      if (Math.abs(now.w - last.w) < 2 && Math.abs(now.h - last.h) < 2) return;
+      last = now;
+      if (!autoFitRef.current) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => fitRef.current());
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(raf);
+    };
+  }, []);
 
   // ---------------------------------------------------------------- exports
   const [busy, setBusy] = useState(false);
@@ -1345,6 +1392,9 @@ export function Editor(props: EditorProps) {
                       className="w-36 px-2 py-1 text-xs border border-slate-300 rounded disabled:opacity-40"
                       title={t('rb.font')}
                     >
+                      {single?.fontFamily && !FONTS.some((f) => f.v === single.fontFamily) && (
+                        <option value={single.fontFamily}>{primaryFamily(single.fontFamily)}</option>
+                      )}
                       {FONTS.map((f) => (
                         <option key={f.v} value={f.v}>
                           {f.l}
@@ -1382,6 +1432,24 @@ export function Editor(props: EditorProps) {
                       ] as const
                     ).map(([a, Icon, k]) => (
                       <Toggle key={a} on={single?.textAlign === a} disabled={!textStyle} title={t(k)} onClick={() => patchSel({ textAlign: a }, fmt)}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </Toggle>
+                    ))}
+                    <span className="w-px h-4 bg-slate-200 mx-1" />
+                    {(
+                      [
+                        ['top', AlignVerticalJustifyStart, 'rb.vTop'],
+                        ['middle', AlignVerticalJustifyCenter, 'rb.vMiddle'],
+                        ['bottom', AlignVerticalJustifyEnd, 'rb.vBottom']
+                      ] as const
+                    ).map(([a, Icon, k]) => (
+                      <Toggle
+                        key={a}
+                        on={(single?.vAlign ?? 'top') === a && single?.type === 'text'}
+                        disabled={!textStyle || single?.type !== 'text'}
+                        title={t(k)}
+                        onClick={() => patchSel({ vAlign: a === 'top' ? undefined : a }, fmt)}
+                      >
                         <Icon className="w-3.5 h-3.5" />
                       </Toggle>
                     ))}
@@ -1557,10 +1625,13 @@ export function Editor(props: EditorProps) {
           {tab === 'view' && (
             <>
               <Group label="Zoom">
-                <RBtn icon={ZoomOut} label={t('vw.zoomOut')} onClick={() => setZoom((z) => clampZoom(z / 1.15))} />
+                <RBtn icon={ZoomOut} label={t('vw.zoomOut')} onClick={() => zoomBy(1 / 1.15)} />
                 <span className="text-xs font-semibold w-12 text-center">{Math.round(zoom * 100)} %</span>
-                <RBtn icon={ZoomIn} label={t('vw.zoomIn')} onClick={() => setZoom((z) => clampZoom(z * 1.15))} />
-                <RBtn icon={Maximize2} label={t('vw.fit')} onClick={fitZoom} />
+                <RBtn icon={ZoomIn} label={t('vw.zoomIn')} onClick={() => zoomBy(1.15)} />
+                <RBtn icon={Maximize2} label={t('vw.fit')} active={autoFit} onClick={() => {
+                  setAutoFit(true);
+                  fitZoom();
+                }} />
               </Group>
               <RBtn icon={Ruler} label={t('vw.rulers')} active={showRulers} onClick={() => setShowRulers(!showRulers)} />
               <RBtn icon={Eye} label={t('vw.margins')} active={showMargins} onClick={() => setShowMargins(!showMargins)} />
@@ -1672,7 +1743,9 @@ export function Editor(props: EditorProps) {
                       }`}
                     >
                       <div className="flex justify-center">
-                        <PagePreview doc={doc} pageIndex={i} width={land ? 150 : 106} flows={flows} pageLabel={pageLabelTpl} />
+                        <LazyMount width={land ? 150 : 106} height={land ? Math.round((150 * 210) / 297) : Math.round((106 * 297) / 210)}>
+                          <PagePreview doc={doc} pageIndex={i} width={land ? 150 : 106} flows={flows} pageLabel={pageLabelTpl} />
+                        </LazyMount>
                       </div>
                       <div className="text-[11px] text-slate-600 mt-1 font-medium flex items-center justify-center gap-1">
                         {i + 1}
@@ -1859,7 +1932,24 @@ export function Editor(props: EditorProps) {
             <span>
               {editingMaster ? t('pg.master') : t('pg.pageN', { n: safePageIndex + 1 })} / {doc.pages.length}
             </span>
-            <span>{Math.round(zoom * 100)} %</span>
+            <span className="flex items-center gap-0.5">
+              <button className="w-5 h-5 rounded hover:bg-slate-100 text-slate-600" title={t('vw.zoomOut')} onClick={() => zoomBy(1 / 1.15)}>
+                −
+              </button>
+              <button
+                className={`px-1.5 h-5 rounded hover:bg-slate-100 ${autoFit ? 'text-brand-700 font-semibold' : ''}`}
+                title={t('vw.fitTip')}
+                onClick={() => {
+                  setAutoFit(true);
+                  fitZoom();
+                }}
+              >
+                {Math.round(zoom * 100)} %{autoFit ? ' · ' + t('vw.auto') : ''}
+              </button>
+              <button className="w-5 h-5 rounded hover:bg-slate-100 text-slate-600" title={t('vw.zoomIn')} onClick={() => zoomBy(1.15)}>
+                +
+              </button>
+            </span>
             {selected.length > 0 && <span>{selected.length > 1 ? t('insp.multi', { n: selected.length }) : t(`kind.${single?.type}`)}</span>}
             {lastPast && (
               <span className="truncate">

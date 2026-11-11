@@ -5,7 +5,7 @@
 import type { CanvasElementData, PageData, PubDocument } from './model';
 import { BLEED_MM, MARK_ZONE_MM, MM_TO_PX, getPageDims, masterElementsFor, pageOrientation } from './model';
 import { getShape } from './shapes';
-import { LINE_HEIGHT, TEXT_PAD, computeDocumentFlows, fontString, type FrameFlow } from './textflow';
+import { computeDocumentFlows, layoutText, type FrameFlow } from './textflow';
 
 export const PRINT_DPI = 300;
 export const PRINT_SCALE = PRINT_DPI / 96;
@@ -146,11 +146,19 @@ async function drawElement(
   } else if (el.type === 'image' && el.imageUrl) {
     const img = await loadImage(el.imageUrl);
     if (img) {
-      // object-fit: cover
-      const r = Math.max(el.width / img.width, el.height / img.height);
-      const sw = el.width / r;
-      const sh = el.height / r;
-      ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, el.x, el.y, el.width, el.height);
+      const fit = el.imageFit ?? 'cover';
+      if (fit === 'fill') ctx.drawImage(img, el.x, el.y, el.width, el.height);
+      else if (fit === 'contain') {
+        const r = Math.min(el.width / img.width, el.height / img.height);
+        const w = img.width * r;
+        const h = img.height * r;
+        ctx.drawImage(img, el.x + (el.width - w) / 2, el.y + (el.height - h) / 2, w, h);
+      } else {
+        const r = Math.max(el.width / img.width, el.height / img.height);
+        const sw = el.width / r;
+        const sh = el.height / r;
+        ctx.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, el.x, el.y, el.width, el.height);
+      }
     } else {
       ctx.fillStyle = '#f1f5f9';
       ctx.fillRect(el.x, el.y, el.width, el.height);
@@ -186,29 +194,18 @@ async function drawElement(
       ctx.fillRect(el.x, el.y, el.width, el.height);
     }
     if (hasStroke) {
+      // Inside stroke, like the on-screen border
+      const sw = el.strokeWidth || 1;
       ctx.strokeStyle = el.strokeColor!;
-      ctx.lineWidth = el.strokeWidth || 1;
-      ctx.strokeRect(el.x, el.y, el.width, el.height);
+      ctx.lineWidth = sw;
+      ctx.strokeRect(el.x + sw / 2, el.y + sw / 2, el.width - sw, el.height - sw);
     }
-    const lines =
-      el.type === 'pagenum'
-        ? [{ text: pageNumberLabel(pageIndex, total, pageLabel), endsPara: true }]
-        : flows.get(el.id)?.lines ?? [];
-    ctx.font = fontString(el);
-    ctx.fillStyle = el.fontColor || '#0f172a';
-    ctx.textBaseline = 'top';
-    const fs = el.fontSize || 16;
-    const lh = fs * LINE_HEIGHT;
-    const innerW = el.width - TEXT_PAD * 2;
-    let y = el.y + TEXT_PAD + (lh - fs) / 2;
+    const flow = el.type === 'pagenum' ? layoutText(el, pageNumberLabel(pageIndex, total, pageLabel)) : flows.get(el.id);
     ctx.save();
     ctx.beginPath();
     ctx.rect(el.x, el.y, el.width, el.height);
     ctx.clip();
-    for (const line of lines) {
-      drawLine(ctx, line.text, el.x + TEXT_PAD, y, innerW, el.textAlign || 'left', !line.endsPara, fs, !!el.underline);
-      y += lh;
-    }
+    if (flow) drawFlow(ctx, flow, el.x, el.y);
     ctx.restore();
   }
   ctx.restore();
@@ -219,37 +216,24 @@ function headerTint(stroke?: string) {
   return stroke + '33'; // stroke colour at 20 % alpha
 }
 
-function drawLine(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  w: number,
-  align: string,
-  canJustify: boolean,
-  fs: number,
-  underline: boolean
-) {
-  const tw = ctx.measureText(text).width;
-  let startX = x;
-  let drawnW = tw;
-  if (align === 'justify' && canJustify && text.includes(' ')) {
-    const words = text.split(' ');
-    const wordsW = words.reduce((a, s) => a + ctx.measureText(s).width, 0);
-    const gap = (w - wordsW) / (words.length - 1);
-    let cx = x;
-    for (const word of words) {
-      ctx.fillText(word, cx, y);
-      cx += ctx.measureText(word).width + gap;
+/** Draws laid-out text segments (same positions as on screen). */
+export function drawFlow(ctx: CanvasRenderingContext2D, flow: FrameFlow, x0: number, y0: number) {
+  const [pl, pt] = flow.pad;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  for (const line of flow.lines) {
+    const by = y0 + pt + flow.offsetY + line.y + line.baseline;
+    for (const s of line.segs) {
+      const text = s.text.replace(/	/g, '    ');
+      if (!text.trim()) continue;
+      ctx.font = s.style.font;
+      ctx.fillStyle = s.style.color;
+      ctx.direction = line.rtl ? 'rtl' : 'ltr';
+      const x = x0 + pl + s.x;
+      const y = by + s.style.shift;
+      ctx.fillText(text, x, y);
+      if (s.style.underline) ctx.fillRect(x, y + s.style.size * 0.12, s.w, Math.max(0.75, s.style.size / 15));
     }
-    drawnW = w;
-  } else {
-    if (align === 'center') startX = x + (w - tw) / 2;
-    else if (align === 'right') startX = x + w - tw;
-    ctx.fillText(text, startX, y);
-  }
-  if (underline && text) {
-    ctx.fillRect(startX, y + fs * 1.05, drawnW, Math.max(1, fs / 14));
   }
 }
 

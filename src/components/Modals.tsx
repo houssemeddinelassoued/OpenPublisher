@@ -106,6 +106,9 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
 // ---------------------------------------------------------------------------
 export function ImportReportModal({ report, onClose }: { report: PubImportReport; onClose: () => void }) {
   const { t } = useI18n();
+  const st = report.stats;
+  const size = report.detectedPageSize;
+  const item = 'flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-50 text-sm';
   return (
     <Modal
       title={t('imp.title')}
@@ -116,10 +119,55 @@ export function ImportReportModal({ report, onClose }: { report: PubImportReport
         </button>
       }
     >
-      <p className="text-sm text-slate-700">
-        {t('imp.text', { f: report.fileName, t: report.extractedTextBlocks.length, i: report.extractedImagesCount })}
-      </p>
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('imp.warn')}</div>
+      {st ? (
+        <>
+          <p className="text-sm text-slate-700">{t('imp.pubText', { f: report.fileName })}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div className={item}>
+              <span>{t('imp.pages')}</span>
+              <b>{st.pages}</b>
+            </div>
+            <div className={item}>
+              <span>{t('imp.format')}</span>
+              <b>
+                {size.preset === 'Custom' ? `${size.widthMm} × ${size.heightMm} mm` : size.preset} · {t(`common.${size.orientation}`)}
+              </b>
+            </div>
+            <div className={item}>
+              <span>{t('imp.frames')}</span>
+              <b>{st.textFrames}</b>
+            </div>
+            <div className={item}>
+              <span>{t('imp.tables')}</span>
+              <b>{st.tables}</b>
+            </div>
+            <div className={item}>
+              <span>{t('imp.pictures')}</span>
+              <b>{st.pictures}</b>
+            </div>
+            <div className={item}>
+              <span>{t('imp.master')}</span>
+              <b>{st.masterElements ? t('imp.yes') : t('imp.no')}</b>
+            </div>
+          </div>
+          {!!report.missingFonts?.length && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {t('imp.fonts', { f: report.missingFonts.join(', ') })}
+            </div>
+          )}
+          {!!st.unsupportedPictures && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('imp.metafiles', { n: st.unsupportedPictures })}</div>
+          )}
+          <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-600">{t('imp.check')}</div>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-slate-700">
+            {t('imp.text', { f: report.fileName, t: report.extractedTextBlocks.length, i: report.extractedImagesCount })}
+          </p>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('imp.warn')}</div>
+        </>
+      )}
     </Modal>
   );
 }
@@ -254,7 +302,7 @@ export function VersionsModal({
             <div className="min-w-0">
               <div className="text-sm font-medium text-slate-900">{fmtDate(v.savedAt)}</div>
               <div className="text-xs text-slate-500 truncate">
-                {t(`hist.reason.${v.reason}`)} • {v.title} • {t('common.pages', { n: v.doc.pages.length })}
+                {t(`hist.reason.${v.reason}`)} • {v.title} • {t('common.pages', { n: v.pageCount ?? v.doc?.pages.length ?? 0 })}
               </div>
             </div>
             <button
