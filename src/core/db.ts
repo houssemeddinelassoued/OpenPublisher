@@ -1,14 +1,15 @@
 // ============================================================================
 // Local persistence (IndexedDB): documents, library folders, version history
 // ============================================================================
-import type { DocVersion, Folder, PubDocument } from './model';
+import type { DocVersion, Folder, PubDocument, UserTemplate } from './model';
 import { uid } from './model';
 
 const DB_NAME = 'openpublisher_db_v1';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DOCS = 'documents';
 const FOLDERS = 'folders';
 const VERSIONS = 'versions';
+const TEMPLATES = 'templates';
 
 /** Version snapshots older than this are pruned automatically. */
 export const HISTORY_RETENTION_DAYS = 365;
@@ -24,6 +25,7 @@ function openDatabase(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(DOCS)) db.createObjectStore(DOCS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(FOLDERS)) db.createObjectStore(FOLDERS, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(TEMPLATES)) db.createObjectStore(TEMPLATES, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(VERSIONS)) {
         const s = db.createObjectStore(VERSIONS, { keyPath: 'id' });
         s.createIndex('docId', 'docId', { unique: false });
@@ -142,6 +144,16 @@ export async function pruneOldVersions(): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
+// User templates
+// ---------------------------------------------------------------------------
+export async function loadTemplates(): Promise<UserTemplate[]> {
+  const t = await getAll<UserTemplate>(TEMPLATES);
+  return t.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+export const saveTemplate = (t: UserTemplate) => put(TEMPLATES, t);
+export const deleteTemplate = (id: string) => del(TEMPLATES, id);
+
+// ---------------------------------------------------------------------------
 // Global backup (.opb)
 // ---------------------------------------------------------------------------
 export const OPB_FORMAT = 'openpublisher-backup';
@@ -156,6 +168,7 @@ export interface OpbBundle {
   documents: PubDocument[];
   folders: Folder[];
   versions: DocVersion[];
+  templates?: UserTemplate[];
 }
 
 export async function buildBackup(appVersion: string, includeVersions = true): Promise<OpbBundle> {
@@ -167,7 +180,8 @@ export async function buildBackup(appVersion: string, includeVersions = true): P
     exportedAt: new Date().toISOString(),
     documents: await loadDocuments(),
     folders: await loadFolders(),
-    versions: includeVersions ? await listVersions() : []
+    versions: includeVersions ? await listVersions() : [],
+    templates: await loadTemplates()
   };
 }
 
@@ -177,10 +191,12 @@ export async function restoreBackup(raw: unknown): Promise<{ docs: number; folde
   let docs: PubDocument[] = [];
   let folders: Folder[] = [];
   let versions: DocVersion[] = [];
+  let templates: UserTemplate[] = [];
   if (Array.isArray(data?.documents)) {
     docs = data.documents;
     folders = Array.isArray(data.folders) ? data.folders : [];
     versions = Array.isArray(data.versions) ? data.versions : [];
+    templates = Array.isArray(data.templates) ? data.templates : [];
   } else if (Array.isArray(raw)) {
     docs = raw as PubDocument[];
   } else if (data && Array.isArray((data as PubDocument).pages)) {
@@ -190,6 +206,7 @@ export async function restoreBackup(raw: unknown): Promise<{ docs: number; folde
   for (const f of folders) await saveFolder(f);
   for (const d of docs) await saveDocument({ ...d, isTemplate: false });
   for (const v of versions) await put(VERSIONS, v);
+  for (const tp of templates) await put(TEMPLATES, tp);
   return { docs: docs.length, folders: folders.length };
 }
 

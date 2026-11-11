@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import type { CanvasElementData, PubDocument } from '../core/model';
-import { getCanvasPixelDimensions } from '../core/model';
+import { getPageDims, masterElementsFor } from '../core/model';
+import { getShape } from '../core/shapes';
 import { LINE_HEIGHT, TEXT_PAD, computeDocumentFlows, type FrameFlow } from '../core/textflow';
 import { pageNumberLabel } from '../core/render';
 
@@ -61,6 +62,8 @@ export const ElementContent = memo(function ElementContent({
         </div>
       );
     }
+    const def = getShape(el.shapeVariant);
+    if (def?.path) return <ShapeSvg path={def.path} evenodd={def.evenodd} el={el} />;
     return (
       <div
         className="w-full h-full box-border"
@@ -100,6 +103,24 @@ export const ElementContent = memo(function ElementContent({
   }
   return null;
 });
+
+/** SVG path shape stretched to the element box, stroke kept at constant width. */
+export function ShapeSvg({ path, evenodd, el }: { path: string; evenodd?: boolean; el: Pick<CanvasElementData, 'fillColor' | 'strokeColor' | 'strokeWidth'> }) {
+  const hasStroke = (el.strokeWidth ?? 0) > 0 && el.strokeColor && el.strokeColor !== 'transparent';
+  return (
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible block">
+      <path
+        d={path}
+        fill={el.fillColor && el.fillColor !== 'transparent' ? el.fillColor : 'none'}
+        fillRule={evenodd ? 'evenodd' : 'nonzero'}
+        stroke={hasStroke ? el.strokeColor : 'none'}
+        strokeWidth={hasStroke ? el.strokeWidth : 0}
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
 
 export function TableView({ el, onCellChange }: { el: CanvasElementData; onCellChange?: (r: number, c: number, v: string) => void }) {
   const data = el.tableData || [];
@@ -177,13 +198,14 @@ export const PagePreview = memo(function PagePreview({
   flows?: Map<string, FrameFlow>;
   pageLabel?: string;
 }) {
-  const dims = getCanvasPixelDimensions(doc);
+  const page0 = doc.pages[pageIndex] || doc.pages[0];
+  const dims = getPageDims(doc, page0);
   const scale = width / dims.width;
   const f = useMemo(() => flows ?? computeDocumentFlows(doc), [flows, doc]);
   const page = doc.pages[pageIndex] || doc.pages[0];
   if (!page) return null;
   const pageText = pageNumberLabel(pageIndex, doc.pages.length, pageLabel);
-  const master = doc.master && !page.hideMaster ? doc.master.elements : [];
+  const master = masterElementsFor(doc, page);
   return (
     <div
       className="relative overflow-hidden bg-white shadow-sm"

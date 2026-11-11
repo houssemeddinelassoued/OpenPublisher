@@ -3,7 +3,8 @@
 // Supports rotation, master page layer, linked text frames and print marks.
 // ============================================================================
 import type { CanvasElementData, PageData, PubDocument } from './model';
-import { BLEED_MM, MARK_ZONE_MM, MM_TO_PX, getCanvasPixelDimensions } from './model';
+import { BLEED_MM, MARK_ZONE_MM, MM_TO_PX, getPageDims, masterElementsFor, pageOrientation } from './model';
+import { getShape } from './shapes';
 import { LINE_HEIGHT, TEXT_PAD, computeDocumentFlows, fontString, type FrameFlow } from './textflow';
 
 export const PRINT_DPI = 300;
@@ -38,8 +39,8 @@ export interface RenderOptions {
 }
 
 /** Size in mm of the exported sheet (page + bleed + mark zone when marks are on). */
-export function sheetSizeMm(doc: PubDocument, marks: boolean) {
-  const { width, height } = getCanvasPixelDimensions(doc);
+export function sheetSizeMm(doc: PubDocument, marks: boolean, page?: PageData) {
+  const { width, height } = getPageDims(doc, page);
   const extra = marks ? 2 * (BLEED_MM + MARK_ZONE_MM) : 0;
   return { w: width / MM_TO_PX + extra, h: height / MM_TO_PX + extra };
 }
@@ -53,7 +54,7 @@ export async function renderPageToCanvas(
   const scale = opts.scale ?? 2;
   const marks = opts.printMarks ?? !!doc.printMarks;
   const flows = opts.flows ?? computeDocumentFlows(doc);
-  const { width, height } = getCanvasPixelDimensions(doc);
+  const { width, height } = getPageDims(doc, page);
   const off = marks ? (BLEED_MM + MARK_ZONE_MM) * MM_TO_PX : 0;
   const bleed = BLEED_MM * MM_TO_PX;
 
@@ -73,7 +74,8 @@ export async function renderPageToCanvas(
 
   const total = doc.pages.length;
   const layers: CanvasElementData[][] = [];
-  if (doc.master && !page.hideMaster) layers.push(doc.master.elements);
+  const master = masterElementsFor(doc, page);
+  if (master.length) layers.push(master);
   layers.push(page.elements);
 
   for (const layer of layers) {
@@ -119,6 +121,14 @@ async function drawElement(
       ctx.fillStyle = el.strokeColor || '#4f46e5';
       const t = Math.max(2, el.strokeWidth || 3);
       ctx.fillRect(el.x, el.y + el.height / 2 - t / 2, el.width, t);
+    } else if (getShape(el.shapeVariant)?.path) {
+      const def = getShape(el.shapeVariant)!;
+      // Scale the 100×100 path to the element box; the stroke keeps its real width.
+      const p = new Path2D();
+      p.addPath(new Path2D(def.path!), new DOMMatrix().translate(el.x, el.y).scale(el.width / 100, el.height / 100));
+      ctx.lineJoin = 'round';
+      if (hasFill) ctx.fill(p, def.evenodd ? 'evenodd' : 'nonzero');
+      if (hasStroke) ctx.stroke(p);
     } else {
       ctx.beginPath();
       roundRect(ctx, el.x, el.y, el.width, el.height, el.borderRadius || 0);
@@ -295,7 +305,8 @@ export function drawPrintMarks(ctx: CanvasRenderingContext2D, w: number, h: numb
 /** Opens a print window containing every page (save as PDF from there). */
 export async function exportPrintPdf(
   doc: PubDocument,
-  labels: { title: string; printBtn: string; pageLabel: string; popupBlocked: string }
+  labels: { title: string; printBtn: string; pageLabel: string; popupBlocked: string },
+  pageIndices?: number[]
 ): Promise<boolean> {
   const marks = !!doc.printMarks;
   const flows = computeDocumentFlows(doc);
@@ -306,33 +317,43 @@ export async function exportPrintPdf(
   }
   win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title></head>
 <body style="font-family:system-ui;padding:40px;color:#0b4f5c">${escapeHtml(labels.title)}…</body></html>`);
-  const urls: string[] = [];
-  for (let i = 0; i < doc.pages.length; i++) {
+  const indices = pageIndices?.length ? pageIndices : doc.pages.map((_, i) => i);
+  const sheets: { url: string; o: string }[] = [];
+  for (const i of indices) {
     const c = await renderPageToCanvas(doc, doc.pages[i], i, {
       scale: PRINT_SCALE,
       printMarks: marks,
       flows,
       pageLabel: labels.pageLabel
     });
-    urls.push(await canvasToObjectUrl(c));
+    sheets.push({ url: await canvasToObjectUrl(c), o: pageOrientation(doc, doc.pages[i]) });
   }
-  const { w, h } = sheetSizeMm(doc, marks);
-  const wMm = w.toFixed(2);
-  const hMm = h.toFixed(2);
+  // Named @page rules let portrait and landscape sheets coexist in one PDF.
+  const sizeOf = (o: string) => {
+    const { w, h } = sheetSizeMm(doc, marks, { orientation: o as PageData['orientation'] } as PageData);
+    return { w: w.toFixed(2), h: h.toFixed(2) };
+  };
+  const P = sizeOf('portrait');
+  const L = sizeOf('landscape');
+  const first = sheets[0]?.o === 'landscape' ? L : P;
   win.document.open();
   win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title>
 <style>
-@page { size: ${wMm}mm ${hMm}mm; margin: 0; }
+@page { size: ${first.w}mm ${first.h}mm; margin: 0; }
+@page portrait { size: ${P.w}mm ${P.h}mm; margin: 0; }
+@page landscape { size: ${L.w}mm ${L.h}mm; margin: 0; }
 html,body{margin:0;padding:0;background:#e2e8f0;font-family:system-ui,sans-serif}
 .bar{position:sticky;top:0;background:#0b4f5c;color:#fff;padding:12px 24px;display:flex;justify-content:space-between;align-items:center}
 .btn{background:#14b8a6;color:#fff;border:0;padding:9px 18px;border-radius:8px;font-weight:600;cursor:pointer;font-size:14px}
-.sheet{width:${wMm}mm;height:${hMm}mm;margin:20px auto;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);break-after:page}
+.sheet{margin:20px auto;background:#fff;box-shadow:0 8px 24px rgba(0,0,0,.25);break-after:page}
 .sheet img{width:100%;height:100%;display:block}
+.portrait{page:portrait;width:${P.w}mm;height:${P.h}mm}
+.landscape{page:landscape;width:${L.w}mm;height:${L.h}mm}
 @media print{body{background:#fff}.bar{display:none}.sheet{margin:0;box-shadow:none}}
 </style></head><body>
-<div class="bar"><div><b>${escapeHtml(doc.title)}</b> · ${doc.pages.length} p · ${wMm}×${hMm} mm · ${PRINT_DPI} dpi</div>
+<div class="bar"><div><b>${escapeHtml(doc.title)}</b> · ${sheets.length} p · ${PRINT_DPI} dpi</div>
 <button class="btn" onclick="window.print()">${escapeHtml(labels.printBtn)}</button></div>
-${urls.map((u) => `<div class="sheet"><img src="${u}"></div>`).join('')}
+${sheets.map((s) => `<div class="sheet ${s.o}"><img src="${s.url}"></div>`).join('')}
 <script>window.onload=function(){setTimeout(function(){window.print()},500)}</script>
 </body></html>`);
   win.document.close();

@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   X,
-  Heart,
-  ExternalLink,
-  Mail,
   LayoutTemplate,
   Type,
   Move,
@@ -18,35 +15,9 @@ import {
   Plus
 } from 'lucide-react';
 import { useI18n } from '../i18n';
-import {
-  APP_AUTHOR,
-  APP_COMPANY,
-  APP_COMPANY_FULL,
-  APP_EMAIL,
-  APP_FACEBOOK,
-  APP_LICENSE,
-  APP_LINKEDIN,
-  APP_NAME,
-  APP_REPO,
-  APP_SITE,
-  APP_VERSION,
-  APP_YEAR
-} from '../meta';
-import { NQLogo } from './Brand';
 import type { DocVersion, Orientation, PageSizePreset, PubDocument, PubImportReport } from '../core/model';
 import { PAGE_PRESETS } from '../core/model';
 import { addVersion, listVersions } from '../core/db';
-
-const LinkedinIcon = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
-    <path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.34V9h3.42v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z" />
-  </svg>
-);
-const FacebookIcon = () => (
-  <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden>
-    <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.23 2.68.23v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z" />
-  </svg>
-);
 
 export function Modal({
   title,
@@ -122,99 +93,12 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
           <Keyboard className="w-4 h-4" /> {t('help.kbd')}
         </div>
         <ul className="text-sm text-brand-900/90 grid sm:grid-cols-2 gap-y-1 gap-x-4" dir="auto">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((i) => (
             <li key={i}>• {t(`help.k${i}`)}</li>
           ))}
         </ul>
       </div>
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{t('help.pub')}</div>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-export function AboutModal({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  const BASE = import.meta.env.BASE_URL;
-  const link = 'text-brand-700 hover:underline inline-flex items-center gap-1';
-  return (
-    <Modal title={t('about.title')} onClose={onClose}>
-      <div className="flex items-center gap-4">
-        <img src={`${BASE}logo-full.png`} alt={APP_NAME} className="w-24 h-24 rounded-2xl border border-slate-100" />
-        <div>
-          <div className="font-bold text-xl text-brand-900">{APP_NAME}</div>
-          <div className="text-sm text-slate-500">{t('about.version', { v: APP_VERSION })}</div>
-        </div>
-      </div>
-      <p className="text-sm text-slate-700 leading-relaxed">{t('about.desc')}</p>
-
-      <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm space-y-2">
-        <div>
-          <span className="text-slate-500">{t('about.author')} :</span> <b>{APP_AUTHOR}</b>
-        </div>
-        <div>
-          <span className="text-slate-500">{t('about.license')} :</span> {t('about.licenseText', { l: APP_LICENSE })}
-        </div>
-        <div>
-          <span className="text-slate-500">{t('about.source')} :</span>{' '}
-          <a href={APP_REPO} target="_blank" rel="noreferrer" className={link}>
-            GitHub <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-        <div>
-          <span className="text-slate-500">{t('about.online')} :</span>{' '}
-          <a href={APP_SITE} target="_blank" rel="noreferrer" className={link} dir="ltr">
-            {APP_SITE.replace('https://', '')} <ExternalLink className="w-3 h-3" />
-          </a>
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm space-y-2">
-        <div className="font-semibold text-brand-900">{t('about.contact')}</div>
-        <p className="text-brand-900/80">{t('about.contactText')}</p>
-        <div className="flex flex-wrap gap-2 pt-1">
-          <a
-            href={`mailto:${APP_EMAIL}?subject=OpenPublisher`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-brand-200 text-brand-800 hover:bg-brand-100"
-            dir="ltr"
-          >
-            <Mail className="w-4 h-4" /> {APP_EMAIL}
-          </a>
-          {APP_LINKEDIN && (
-            <a
-              href={APP_LINKEDIN}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0a66c2] text-white hover:opacity-90"
-            >
-              <LinkedinIcon /> LinkedIn
-            </a>
-          )}
-          {APP_FACEBOOK && (
-            <a
-              href={APP_FACEBOOK}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1877f2] text-white hover:opacity-90"
-            >
-              <FacebookIcon /> Facebook
-            </a>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3">
-        <NQLogo size={48} />
-        <div className="text-sm">
-          <div className="text-slate-500 text-xs">{t('about.company')}</div>
-          <div className="font-bold text-brand-900">{APP_COMPANY}</div>
-          <div className="text-xs text-slate-500">{APP_COMPANY_FULL}</div>
-        </div>
-      </div>
-
-      <p className="text-xs text-slate-500 flex items-center gap-1.5">
-        <Heart className="w-3.5 h-3.5 text-rose-500" /> {t('about.madeWith', { a: APP_AUTHOR })} • © {APP_YEAR} {APP_COMPANY}
-      </p>
     </Modal>
   );
 }

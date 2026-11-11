@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { EXTRA_AR, EXTRA_EN, EXTRA_FR } from './i18n-extra';
 
 export type Lang = 'fr' | 'en' | 'ar';
 export const LANGS: { id: Lang; label: string; short: string }[] = [
@@ -1193,6 +1194,10 @@ Object.assign(ar, {
   'ctx.pageSettings': 'إعدادات الصفحة…'
 });
 
+Object.assign(fr, EXTRA_FR);
+Object.assign(en, EXTRA_EN);
+Object.assign(ar, EXTRA_AR);
+
 const DICTS: Record<Lang, Dict> = { fr, en, ar };
 const LANG_KEY = 'op.lang';
 
@@ -1222,7 +1227,8 @@ function initialLang(): Lang {
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(initialLang);
-  const dir = lang === 'ar' ? 'rtl' : 'ltr';
+  // The layout stays left-to-right in every language (Arabic text still renders right-to-left).
+  const dir = 'ltr' as const;
   const locale = lang === 'fr' ? 'fr-FR' : lang === 'ar' ? 'ar-TN' : 'en-GB';
 
   useEffect(() => {

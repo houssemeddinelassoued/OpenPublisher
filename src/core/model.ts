@@ -5,7 +5,8 @@
 export type PageSizePreset = 'A4' | 'A5' | 'A3' | 'Letter' | 'Custom';
 export type Orientation = 'portrait' | 'landscape';
 export type ElementType = 'text' | 'image' | 'shape' | 'table' | 'pagenum' | 'border';
-export type ShapeVariant = 'rectangle' | 'circle' | 'line';
+/** 'rectangle' | 'circle' | 'line' are native; every other variant is an SVG path (see shapes.ts). */
+export type ShapeVariant = 'rectangle' | 'circle' | 'line' | (string & {});
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 
 export interface CanvasElementData {
@@ -54,6 +55,8 @@ export interface PageData {
   elements: CanvasElementData[];
   /** When true the master page layer is not drawn on this page. */
   hideMaster?: boolean;
+  /** Per-page orientation override (mixed portrait / landscape documents). */
+  orientation?: Orientation;
 }
 
 export interface MasterPage {
@@ -96,6 +99,15 @@ export interface DocVersion {
   title: string;
   savedAt: string;
   reason: 'open' | 'auto' | 'close' | 'manual' | 'restore';
+  doc: PubDocument;
+}
+
+/** A template created by the user from a document or from some pages. */
+export interface UserTemplate {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
   doc: PubDocument;
 }
 
@@ -142,6 +154,31 @@ export function getCanvasPixelDimensions(doc: Pick<PubDocument, 'widthMm' | 'hei
     return { width: Math.max(baseW, baseH), height: Math.min(baseW, baseH) };
   }
   return { width: Math.min(baseW, baseH), height: Math.max(baseW, baseH) };
+}
+
+export function pageOrientation(doc: Pick<PubDocument, 'orientation'>, page?: Pick<PageData, 'orientation'>): Orientation {
+  return page?.orientation ?? doc.orientation;
+}
+
+/** Pixel size of one page (pages may override the document orientation). */
+export function getPageDims(doc: Pick<PubDocument, 'widthMm' | 'heightMm' | 'orientation'>, page?: Pick<PageData, 'orientation'>) {
+  return getCanvasPixelDimensions({ widthMm: doc.widthMm, heightMm: doc.heightMm, orientation: pageOrientation(doc, page) });
+}
+
+/**
+ * Master page elements are laid out for the document's default orientation.
+ * On a page with another orientation their position is scaled so headers,
+ * footers and page numbers stay at the same relative place.
+ */
+export function masterElementsFor(doc: PubDocument, page: PageData): CanvasElementData[] {
+  const els = doc.master?.elements ?? [];
+  if (!els.length || page.hideMaster) return page.hideMaster ? [] : els;
+  const from = getPageDims(doc);
+  const to = getPageDims(doc, page);
+  if (from.width === to.width && from.height === to.height) return els;
+  const sx = to.width / from.width;
+  const sy = to.height / from.height;
+  return els.map((e) => ({ ...e, x: Math.round(e.x * sx), y: Math.round(e.y * sy), width: Math.round(e.width * sx) }));
 }
 
 export function uid(prefix = 'el'): string {

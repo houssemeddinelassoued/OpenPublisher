@@ -21,16 +21,20 @@ import {
   Search,
   FileText,
   X,
-  ShieldCheck
+  ShieldCheck,
+  LayoutTemplate,
+  GripVertical
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { AppLogo, LanguageSwitcher, NQLogo } from '../components/Brand';
 import { NewDocModal, VersionsModal } from '../components/Modals';
+import { SaveTemplateModal } from '../components/TemplateModal';
 import { PagePreview } from '../editor/ElementView';
 import type { DocVersion, Folder, Orientation, PageSizePreset, PubDocument } from '../core/model';
+import { pageOrientation } from '../core/model';
 import { getLastBackupAt, listVersions, HISTORY_RETENTION_DAYS } from '../core/db';
 import type { TemplateGroup, TemplateInfo } from '../templates';
-import { APP_AUTHOR, APP_COMPANY, APP_VERSION } from '../meta';
+import { APP_COMPANY, APP_INITIATIVE, APP_VERSION } from '../meta';
 
 export type HubTab = 'home' | 'library' | 'history';
 
@@ -43,12 +47,15 @@ export interface HubProps {
   openDoc: (d: PubDocument) => void;
   createBlank: (title: string, preset: PageSizePreset, w: number, h: number, o: Orientation, folderId?: string | null) => void;
   createFromTemplate: (tpl: TemplateInfo, folderId?: string | null) => void;
+  deleteTemplate: (id: string) => void;
+  saveDocAsTemplate: (doc: PubDocument, name: string, description: string) => void;
   updateDocMeta: (id: string, patch: Partial<PubDocument>) => void;
   duplicateDoc: (d: PubDocument) => void;
   deleteDoc: (d: PubDocument) => void;
   createFolder: (name: string, parentId: string | null) => void;
   renameFolder: (id: string, name: string) => void;
   deleteFolder: (id: string) => void;
+  moveFolder: (id: string, parentId: string | null) => void;
   importFile: () => void;
   exportBackup: () => void;
   importBackup: () => void;
@@ -59,12 +66,61 @@ export interface HubProps {
 
 const BACKUP_SNOOZE_KEY = 'op.backupSnoozeUntil';
 const BACKUP_EVERY_DAYS = 7;
+const DOC_MIME = 'application/x-op-doc';
+const FOLDER_MIME = 'application/x-op-folder';
+
+// ---------------------------------------------------------------------------
+// Drag & drop helpers (documents and folders → folders)
+// ---------------------------------------------------------------------------
+function isInside(folders: Folder[], folderId: string, ancestorId: string): boolean {
+  const byId = new Map(folders.map((f) => [f.id, f]));
+  let cur: string | null | undefined = folderId;
+  let guard = 0;
+  while (cur && guard++ < 50) {
+    if (cur === ancestorId) return true;
+    cur = byId.get(cur)?.parentId;
+  }
+  return false;
+}
+
+/** Makes an element a drop target for documents / folders. */
+function useFolderDrop(target: string | null, p: Pick<HubProps, 'updateDocMeta' | 'moveFolder' | 'folders'>) {
+  const [over, setOver] = useState(false);
+  const accepts = (e: React.DragEvent) => e.dataTransfer.types.includes(DOC_MIME) || e.dataTransfer.types.includes(FOLDER_MIME);
+  return {
+    over,
+    props: {
+      onDragOver: (e: React.DragEvent) => {
+        if (!accepts(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (!over) setOver(true);
+      },
+      onDragLeave: () => setOver(false),
+      onDrop: (e: React.DragEvent) => {
+        setOver(false);
+        const docId = e.dataTransfer.getData(DOC_MIME);
+        const folderId = e.dataTransfer.getData(FOLDER_MIME);
+        if (docId) {
+          e.preventDefault();
+          p.updateDocMeta(docId, { folderId: target });
+        } else if (folderId && folderId !== target && !(target && isInside(p.folders, target, folderId))) {
+          e.preventDefault();
+          p.moveFolder(folderId, target);
+        }
+      }
+    }
+  };
+}
+
+const dropRing = (over: boolean) => (over ? 'ring-2 ring-brand-500 bg-brand-50' : '');
 
 export function Hub(p: HubProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [newDocFor, setNewDocFor] = useState<{ folderId: string | null } | null>(null);
   const [versionsFor, setVersionsFor] = useState<PubDocument | null>(null);
+  const [templateFor, setTemplateFor] = useState<PubDocument | null>(null);
   const [libFolder, setLibFolder] = useState<string | null>(null);
 
   const q = query.trim().toLowerCase();
@@ -77,13 +133,14 @@ export function Hub(p: HubProps) {
   ];
   const favorites = p.docs.filter((d) => d.favorite);
   const rootFolders = p.folders.filter((f) => !f.parentId);
+  const listProps = { ...p, onVersions: setVersionsFor, onTemplate: setTemplateFor };
 
   return (
     <div className="h-full flex bg-[#f4f8f8] text-slate-900">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 bg-white border-e border-slate-200 flex flex-col">
-        <div className="px-5 py-4 flex items-center gap-3 border-b border-slate-100">
-          <AppLogo size={42} />
+        <div className="px-4 py-3.5 flex items-center gap-3 border-b border-slate-100">
+          <AppLogo size={46} />
           <div className="min-w-0">
             <div className="font-bold text-brand-900 leading-tight">OpenPublisher</div>
             <div className="text-[11px] text-slate-500 truncate">{t('app.tagline')}</div>
@@ -116,34 +173,32 @@ export function Hub(p: HubProps) {
             </button>
           ))}
           {rootFolders.map((f) => (
-            <button
+            <SidebarFolder
               key={f.id}
-              onClick={() => {
+              folder={f}
+              hub={p}
+              onOpen={() => {
                 setLibFolder(f.id);
                 p.setTab('library');
               }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-slate-700 hover:bg-slate-100 text-start"
-            >
-              <FolderIcon className="w-3.5 h-3.5 text-brand-600 fill-brand-100 shrink-0" />
-              <span className="truncate">{f.name}</span>
-            </button>
+            />
           ))}
         </div>
 
-        <div className="border-t border-slate-100 p-4 flex items-center gap-3">
-          <NQLogo size={34} />
+        <button onClick={p.openAbout} className="border-t border-slate-100 p-3 flex items-center gap-3 text-start hover:bg-slate-50">
+          <NQLogo size={38} />
           <div className="text-[11px] leading-tight text-slate-500 min-w-0">
             <div className="font-semibold text-brand-900 truncate">{APP_COMPANY}</div>
             <div className="truncate">
-              {APP_AUTHOR} • v{APP_VERSION}
+              {APP_INITIATIVE} • v{APP_VERSION}
             </div>
           </div>
-        </div>
+        </button>
       </aside>
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="bg-white/80 backdrop-blur border-b border-slate-200 px-6 py-3 flex items-center gap-3">
+        <header className="bg-white/80 backdrop-blur border-b border-slate-200 px-6 py-3 flex items-center gap-3 relative z-20">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute top-1/2 -translate-y-1/2 start-3" />
             <input
@@ -160,10 +215,10 @@ export function Hub(p: HubProps) {
           </div>
           <div className="flex-1" />
           <LanguageSwitcher />
-          <button onClick={p.openHelp} className="hub-btn inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium">
+          <button onClick={p.openHelp} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium">
             <HelpCircle className="w-4 h-4 text-brand-700" /> {t('common.help')}
           </button>
-          <button onClick={p.openAbout} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium">
+          <button onClick={p.openAbout} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium">
             <Info className="w-4 h-4 text-brand-700" /> {t('common.about')}
           </button>
         </header>
@@ -175,20 +230,14 @@ export function Hub(p: HubProps) {
                 <h2 className="text-lg font-bold text-brand-900">
                   “{query}” — {t('lib.files', { n: filtered.length })}
                 </h2>
-                <DocList {...p} docs={filtered} onVersions={setVersionsFor} />
+                <DocList {...listProps} docs={filtered} />
               </section>
             ) : p.tab === 'home' ? (
-              <HomeTab {...p} onNewDoc={() => setNewDocFor({ folderId: null })} onVersions={setVersionsFor} />
+              <HomeTab {...listProps} onNewDoc={() => setNewDocFor({ folderId: null })} />
             ) : p.tab === 'library' ? (
-              <LibraryTab
-                {...p}
-                folderId={libFolder}
-                setFolderId={setLibFolder}
-                onNewDoc={(folderId) => setNewDocFor({ folderId })}
-                onVersions={setVersionsFor}
-              />
+              <LibraryTab {...listProps} folderId={libFolder} setFolderId={setLibFolder} onNewDoc={(folderId) => setNewDocFor({ folderId })} />
             ) : (
-              <HistoryTab {...p} onVersions={setVersionsFor} />
+              <HistoryTab {...listProps} />
             )}
           </div>
         </main>
@@ -213,7 +262,35 @@ export function Hub(p: HubProps) {
           }}
         />
       )}
+      {templateFor && (
+        <SaveTemplateModal
+          defaultName={templateFor.title}
+          scopes={[{ scope: 'document', pages: templateFor.pages.length }]}
+          initialScope="document"
+          onClose={() => setTemplateFor(null)}
+          onSave={(name, desc) => {
+            p.saveDocAsTemplate(templateFor, name, desc);
+            setTemplateFor(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+type ListProps = HubProps & { onVersions: (d: PubDocument) => void; onTemplate: (d: PubDocument) => void };
+
+function SidebarFolder({ folder, hub, onOpen }: { folder: Folder; hub: HubProps; onOpen: () => void }) {
+  const drop = useFolderDrop(folder.id, hub);
+  return (
+    <button
+      onClick={onOpen}
+      {...drop.props}
+      className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm text-slate-700 hover:bg-slate-100 text-start ${dropRing(drop.over)}`}
+    >
+      <FolderIcon className="w-3.5 h-3.5 text-brand-600 fill-brand-100 shrink-0" />
+      <span className="truncate">{folder.name}</span>
+    </button>
   );
 }
 
@@ -250,27 +327,22 @@ function BackupBanner({ docs, exportBackup }: { docs: PubDocument[]; exportBacku
       >
         {t('bk.later')}
       </button>
-      <button
-        onClick={exportBackup}
-        className="px-4 py-2 text-sm font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg inline-flex items-center gap-2"
-      >
+      <button onClick={exportBackup} className="px-4 py-2 text-sm font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg inline-flex items-center gap-2">
         <CloudDownload className="w-4 h-4" /> {t('bk.now')}
       </button>
     </div>
   );
 }
 
-function HomeTab(p: HubProps & { onNewDoc: () => void; onVersions: (d: PubDocument) => void }) {
-  const { t } = useI18n();
+function previewWidth(d: PubDocument, portraitW: number) {
+  return pageOrientation(d, d.pages[0]) === 'landscape' ? Math.round(portraitW * 1.414) : portraitW;
+}
+
+function HomeTab(p: ListProps & { onNewDoc: () => void }) {
+  const { t, fmtDate } = useI18n();
+  const userCount = p.templates.filter((x) => x.userId).length;
   const [filter, setFilter] = useState<'all' | TemplateGroup>('all');
-  const groups: ('all' | TemplateGroup)[] = ['all', 'class', 'parents', 'rewards', 'organisation'];
-  const grpLabel: Record<string, string> = {
-    all: t('grp.all'),
-    class: t('grp.class'),
-    parents: t('grp.parents'),
-    rewards: t('grp.rewards'),
-    organisation: t('grp.organisation')
-  };
+  const groups: ('all' | TemplateGroup)[] = ['all', ...(userCount ? (['mine'] as const) : []), 'class', 'parents', 'rewards', 'organisation'];
   const shown = p.templates.filter((x) => filter === 'all' || x.group === filter);
   const last = p.docs[0];
   return (
@@ -300,6 +372,37 @@ function HomeTab(p: HubProps & { onNewDoc: () => void; onVersions: (d: PubDocume
 
       <BackupBanner docs={p.docs} exportBackup={p.exportBackup} />
 
+      {/* Recent documents (before templates) */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-brand-900">{t('hub.recent')}</h2>
+          {p.docs.length > 6 && (
+            <button onClick={() => p.setTab('history')} className="text-sm font-semibold text-brand-700 hover:underline">
+              {t('hub.seeAll')}
+            </button>
+          )}
+        </div>
+        {p.docs.length === 0 ? (
+          <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-sm">{t('hub.noDocs')}</div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            {p.docs.slice(0, 6).map((d) => (
+              <button key={d.id} onClick={() => p.openDoc(d)} className="group text-start" title={d.title}>
+                <div className="h-36 rounded-xl bg-slate-100 border border-slate-200 group-hover:border-brand-400 group-hover:shadow-md flex items-center justify-center overflow-hidden transition">
+                  <PagePreview doc={d} pageIndex={0} width={previewWidth(d, 88)} />
+                </div>
+                <div className="text-sm font-semibold mt-1.5 truncate group-hover:text-brand-700">{d.title}</div>
+                <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                  <Clock className="w-3 h-3 shrink-0" />
+                  <span className="truncate">{fmtDate(d.updatedAt)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Templates */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -315,55 +418,44 @@ function HomeTab(p: HubProps & { onNewDoc: () => void; onVersions: (d: PubDocume
                   filter === g ? 'bg-brand-700 border-brand-700 text-white' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-100'
                 }`}
               >
-                {grpLabel[g]}
+                {t(`grp.${g}`)}
+                {g === 'mine' && ` (${userCount})`}
               </button>
             ))}
           </div>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {shown.map((tpl) => (
-            <button
-              key={tpl.key}
-              onClick={() => p.createFromTemplate(tpl)}
-              className="group text-start bg-white hover:shadow-md border border-slate-200 hover:border-brand-400 rounded-2xl p-3 transition flex flex-col"
-            >
-              <div className="h-44 rounded-xl bg-slate-100 flex items-center justify-center mb-3 overflow-hidden">
-                <PagePreview doc={tpl.doc} pageIndex={0} width={tpl.doc.orientation === 'landscape' ? 180 : 120} />
-              </div>
-              <div className="font-semibold text-sm text-slate-900 group-hover:text-brand-700">{t(`tpl.${tpl.key}.title`)}</div>
-              <div className="text-xs text-slate-500 mt-0.5 flex-1">{t(`tpl.${tpl.key}.desc`)}</div>
-              <div className="text-[11px] text-slate-400 mt-2">
-                {t('common.pages', { n: tpl.doc.pages.length })} • {tpl.doc.orientation === 'landscape' ? t('common.landscape') : t('common.portrait')}
-              </div>
-            </button>
+            <div key={tpl.key} className="group relative">
+              <button
+                onClick={() => p.createFromTemplate(tpl)}
+                className="w-full h-full text-start bg-white hover:shadow-md border border-slate-200 hover:border-brand-400 rounded-2xl p-3 transition flex flex-col"
+              >
+                <div className="h-44 rounded-xl bg-slate-100 flex items-center justify-center mb-3 overflow-hidden">
+                  <PagePreview doc={tpl.doc} pageIndex={0} width={previewWidth(tpl.doc, 120)} />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {tpl.userId && <LayoutTemplate className="w-3.5 h-3.5 text-brand-600 shrink-0" />}
+                  <span className="font-semibold text-sm text-slate-900 group-hover:text-brand-700 truncate">{tpl.title ?? t(`tpl.${tpl.key}.title`)}</span>
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5 flex-1">{tpl.userId ? tpl.description || t('tpl.mine') : t(`tpl.${tpl.key}.desc`)}</div>
+                <div className="text-[11px] text-slate-400 mt-2">{t('common.pages', { n: tpl.doc.pages.length })}</div>
+              </button>
+              {tpl.userId && (
+                <button
+                  title={t('common.delete')}
+                  onClick={() => {
+                    if (window.confirm(t('tpl.deleteConfirm', { t: tpl.title ?? '' }))) p.deleteTemplate(tpl.userId!);
+                  }}
+                  className="absolute top-2 end-2 p-1.5 rounded-lg bg-white/95 border border-slate-200 text-slate-400 hover:text-rose-600 opacity-0 group-hover:opacity-100 shadow-sm"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
         <p className="text-xs text-slate-400">{t('tpl.contentNote')}</p>
-      </section>
-
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-brand-900">{t('hub.recent')}</h2>
-          {p.docs.length > 6 && (
-            <button onClick={() => p.setTab('history')} className="text-sm font-semibold text-brand-700 hover:underline">
-              {t('hub.seeAll')}
-            </button>
-          )}
-        </div>
-        {p.docs.length === 0 ? (
-          <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-sm">{t('hub.noDocs')}</div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-            {p.docs.slice(0, 6).map((d) => (
-              <button key={d.id} onClick={() => p.openDoc(d)} className="group text-start">
-                <div className="h-36 rounded-xl bg-slate-100 border border-slate-200 group-hover:border-brand-400 flex items-center justify-center overflow-hidden">
-                  <PagePreview doc={d} pageIndex={0} width={d.orientation === 'landscape' ? 130 : 88} />
-                </div>
-                <div className="text-sm font-medium mt-1.5 truncate group-hover:text-brand-700">{d.title}</div>
-              </button>
-            ))}
-          </div>
-        )}
       </section>
 
       <BackupCard exportBackup={p.exportBackup} importBackup={p.importBackup} />
@@ -394,16 +486,10 @@ function BackupCard({ exportBackup, importBackup }: { exportBackup: () => void; 
         <p className="text-xs text-slate-400 mt-1">{last ? t('bk.last', { d: fmtDate(last) }) : t('bk.never')}</p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button
-          onClick={exportBackup}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-800 text-white text-xs font-semibold"
-        >
+        <button onClick={exportBackup} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-800 text-white text-xs font-semibold">
           <CloudDownload className="w-4 h-4" /> {t('bk.export')}
         </button>
-        <button
-          onClick={importBackup}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
-        >
+        <button onClick={importBackup} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold">
           <CloudUpload className="w-4 h-4 text-brand-700" /> {t('bk.import')}
         </button>
       </div>
@@ -412,19 +498,11 @@ function BackupCard({ exportBackup, importBackup }: { exportBackup: () => void; 
 }
 
 // ---------------------------------------------------------------------------
-// Library (folders / sub-folders / files)
+// Library (folders / sub-folders / files, drag & drop)
 // ---------------------------------------------------------------------------
-function LibraryTab(
-  p: HubProps & {
-    folderId: string | null;
-    setFolderId: (id: string | null) => void;
-    onNewDoc: (folderId: string | null) => void;
-    onVersions: (d: PubDocument) => void;
-  }
-) {
+function LibraryTab(p: ListProps & { folderId: string | null; setFolderId: (id: string | null) => void; onNewDoc: (folderId: string | null) => void }) {
   const { t } = useI18n();
   const byId = new Map(p.folders.map((f) => [f.id, f]));
-  // Fall back to root if the current folder was deleted.
   const current = p.folderId && byId.has(p.folderId) ? p.folderId : null;
   const path: Folder[] = [];
   for (let id = current; id; id = byId.get(id)?.parentId ?? null) {
@@ -436,39 +514,37 @@ function LibraryTab(
   const docsHere = p.docs.filter((d) => (d.folderId ?? null) === current || (current === null && d.folderId && !byId.has(d.folderId)));
 
   const [newName, setNewName] = useState<string | null>(null);
-  const newFolder = () => setNewName(t('lib.defaultFolder'));
   const submitFolder = () => {
     if (newName && newName.trim()) p.createFolder(newName.trim(), current);
     setNewName(null);
   };
+  const rootDrop = useFolderDrop(null, p);
 
   return (
     <div className="flex gap-6 items-start">
       <div className="w-60 shrink-0 bg-white border border-slate-200 rounded-2xl p-3 hidden md:block">
         <button
           onClick={() => p.setFolderId(null)}
+          {...rootDrop.props}
           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm font-semibold ${
             current === null ? 'bg-brand-50 text-brand-800' : 'text-slate-700 hover:bg-slate-50'
-          }`}
+          } ${dropRing(rootDrop.over)}`}
         >
           <Library className="w-4 h-4" /> {t('lib.root')}
         </button>
-        <FolderTree folders={p.folders} parentId={null} current={current} onPick={p.setFolderId} depth={0} />
+        <FolderTree hub={p} parentId={null} current={current} onPick={p.setFolderId} depth={0} />
+        <p className="text-[11px] text-slate-400 mt-3 px-1 leading-relaxed">{t('lib.dndHint')}</p>
       </div>
 
       <div className="flex-1 min-w-0 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-1 text-sm text-slate-500">
-              <button onClick={() => p.setFolderId(null)} className="hover:text-brand-700 font-medium">
-                {t('lib.title')}
-              </button>
+              <Crumb label={t('lib.title')} target={null} hub={p} onClick={() => p.setFolderId(null)} />
               {path.map((f) => (
                 <span key={f.id} className="inline-flex items-center gap-1">
-                  <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />
-                  <button onClick={() => p.setFolderId(f.id)} className="hover:text-brand-700 font-medium">
-                    {f.name}
-                  </button>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  <Crumb label={f.name} target={f.id} hub={p} onClick={() => p.setFolderId(f.id)} />
                 </span>
               ))}
             </div>
@@ -476,13 +552,13 @@ function LibraryTab(
             {!current && <p className="text-sm text-slate-500">{t('lib.sub')}</p>}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={newFolder} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium">
+            <button
+              onClick={() => setNewName(t('lib.defaultFolder'))}
+              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-sm font-medium"
+            >
               <FolderPlus className="w-4 h-4 text-brand-700" /> {current ? t('lib.newSubfolder') : t('lib.newFolder')}
             </button>
-            <button
-              onClick={() => p.onNewDoc(current)}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-800 text-white text-sm font-semibold"
-            >
+            <button onClick={() => p.onNewDoc(current)} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-brand-700 hover:bg-brand-800 text-white text-sm font-semibold">
               <Plus className="w-4 h-4" /> {t('lib.newDocHere')}
             </button>
           </div>
@@ -517,108 +593,126 @@ function LibraryTab(
 
         {sub.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {sub.map((f) => {
-              const nDocs = p.docs.filter((d) => d.folderId === f.id).length;
-              const nSub = p.folders.filter((x) => x.parentId === f.id).length;
-              return (
-                <div
-                  key={f.id}
-                  className="group bg-white border border-slate-200 hover:border-brand-400 rounded-xl p-3 flex items-start gap-3 cursor-pointer"
-                  onDoubleClick={() => p.setFolderId(f.id)}
-                  onClick={() => p.setFolderId(f.id)}
-                >
-                  <FolderIcon className="w-9 h-9 text-brand-500 fill-brand-100 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-sm truncate">{f.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {t('lib.folders', { n: nSub })} • {t('lib.files', { n: nDocs })}
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      title={t('common.rename')}
-                      onClick={() => {
-                        const name = window.prompt(t('lib.folderName'), f.name);
-                        if (name && name.trim()) p.renameFolder(f.id, name.trim());
-                      }}
-                      className="p-1 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-50"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      title={t('common.delete')}
-                      onClick={() => {
-                        if (window.confirm(t('lib.deleteFolderConfirm', { t: f.name }))) p.deleteFolder(f.id);
-                      }}
-                      className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+            {sub.map((f) => (
+              <FolderCard key={f.id} folder={f} hub={p} onOpen={() => p.setFolderId(f.id)} />
+            ))}
           </div>
         )}
 
         {docsHere.length === 0 && sub.length === 0 ? (
           <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-sm">{t('lib.empty')}</div>
         ) : (
-          docsHere.length > 0 && <DocList {...p} docs={docsHere} onVersions={p.onVersions} />
+          docsHere.length > 0 && <DocList {...p} docs={docsHere} />
         )}
       </div>
     </div>
   );
 }
 
-function FolderTree({
-  folders,
-  parentId,
-  current,
-  onPick,
-  depth
-}: {
-  folders: Folder[];
-  parentId: string | null;
-  current: string | null;
-  onPick: (id: string) => void;
-  depth: number;
-}) {
-  const children = folders.filter((f) => (f.parentId ?? null) === parentId);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
+function Crumb({ label, target, hub, onClick }: { label: string; target: string | null; hub: HubProps; onClick: () => void }) {
+  const drop = useFolderDrop(target, hub);
+  return (
+    <button onClick={onClick} {...drop.props} className={`hover:text-brand-700 font-medium rounded px-1 ${dropRing(drop.over)}`}>
+      {label}
+    </button>
+  );
+}
+
+function FolderCard({ folder: f, hub: p, onOpen }: { folder: Folder; hub: HubProps; onOpen: () => void }) {
+  const { t } = useI18n();
+  const drop = useFolderDrop(f.id, p);
+  const nDocs = p.docs.filter((d) => d.folderId === f.id).length;
+  const nSub = p.folders.filter((x) => x.parentId === f.id).length;
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(FOLDER_MIME, f.id);
+        e.dataTransfer.effectAllowed = 'move';
+      }}
+      {...drop.props}
+      onClick={onOpen}
+      className={`group bg-white border border-slate-200 hover:border-brand-400 rounded-xl p-3 flex items-start gap-3 cursor-pointer transition ${dropRing(drop.over)}`}
+    >
+      <FolderIcon className="w-9 h-9 text-brand-500 fill-brand-100 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="font-semibold text-sm truncate">{f.name}</div>
+        <div className="text-xs text-slate-500">
+          {t('lib.folders', { n: nSub })} • {t('lib.files', { n: nDocs })}
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+        <button
+          title={t('common.rename')}
+          onClick={() => {
+            const name = window.prompt(t('lib.folderName'), f.name);
+            if (name && name.trim()) p.renameFolder(f.id, name.trim());
+          }}
+          className="p-1 rounded text-slate-400 hover:text-brand-700 hover:bg-brand-50"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button
+          title={t('common.delete')}
+          onClick={() => {
+            if (window.confirm(t('lib.deleteFolderConfirm', { t: f.name }))) p.deleteFolder(f.id);
+          }}
+          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FolderTree({ hub, parentId, current, onPick, depth }: { hub: HubProps; parentId: string | null; current: string | null; onPick: (id: string) => void; depth: number }) {
+  const children = hub.folders.filter((f) => (f.parentId ?? null) === parentId);
   if (depth > 12) return null;
   return (
     <ul>
-      {children.map((f) => {
-        const hasKids = folders.some((x) => x.parentId === f.id);
-        const isOpen = open[f.id] ?? true;
-        return (
-          <li key={f.id}>
-            <div
-              className={`flex items-center gap-1 rounded-lg text-sm ${current === f.id ? 'bg-brand-50 text-brand-800 font-semibold' : 'text-slate-700 hover:bg-slate-50'}`}
-              style={{ paddingInlineStart: 4 + depth * 14 }}
-            >
-              <button onClick={() => setOpen({ ...open, [f.id]: !isOpen })} className={`p-0.5 ${hasKids ? '' : 'invisible'}`}>
-                {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5 rtl:rotate-180" />}
-              </button>
-              <button onClick={() => onPick(f.id)} className="flex-1 flex items-center gap-1.5 py-1.5 text-start min-w-0">
-                <FolderIcon className="w-3.5 h-3.5 text-brand-600 fill-brand-100 shrink-0" />
-                <span className="truncate">{f.name}</span>
-              </button>
-            </div>
-            {hasKids && isOpen && <FolderTree folders={folders} parentId={f.id} current={current} onPick={onPick} depth={depth + 1} />}
-          </li>
-        );
-      })}
+      {children.map((f) => (
+        <FolderTreeItem key={f.id} folder={f} hub={hub} current={current} onPick={onPick} depth={depth} />
+      ))}
     </ul>
   );
 }
 
+function FolderTreeItem({ folder: f, hub, current, onPick, depth }: { folder: Folder; hub: HubProps; current: string | null; onPick: (id: string) => void; depth: number }) {
+  const [open, setOpen] = useState(true);
+  const drop = useFolderDrop(f.id, hub);
+  const hasKids = hub.folders.some((x) => x.parentId === f.id);
+  return (
+    <li>
+      <div
+        {...drop.props}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData(FOLDER_MIME, f.id);
+          e.dataTransfer.effectAllowed = 'move';
+        }}
+        className={`flex items-center gap-1 rounded-lg text-sm ${current === f.id ? 'bg-brand-50 text-brand-800 font-semibold' : 'text-slate-700 hover:bg-slate-50'} ${dropRing(drop.over)}`}
+        style={{ paddingInlineStart: 4 + depth * 14 }}
+      >
+        <button onClick={() => setOpen(!open)} className={`p-0.5 ${hasKids ? '' : 'invisible'}`}>
+          {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
+        <button onClick={() => onPick(f.id)} className="flex-1 flex items-center gap-1.5 py-1.5 text-start min-w-0">
+          <FolderIcon className="w-3.5 h-3.5 text-brand-600 fill-brand-100 shrink-0" />
+          <span className="truncate">{f.name}</span>
+        </button>
+      </div>
+      {hasKids && open && <FolderTree hub={hub} parentId={f.id} current={current} onPick={onPick} depth={depth + 1} />}
+    </li>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Shared document list
+// Shared document list (rows are draggable onto folders)
 // ---------------------------------------------------------------------------
-function DocList(p: HubProps & { docs: PubDocument[]; onVersions: (d: PubDocument) => void }) {
+function DocList(p: ListProps & { docs: PubDocument[] }) {
   const { t, fmtDate } = useI18n();
+  const [dragging, setDragging] = useState<string | null>(null);
   const folderOptions = useMemo(() => {
     const byId = new Map(p.folders.map((f) => [f.id, f]));
     const label = (f: Folder) => {
@@ -637,28 +731,31 @@ function DocList(p: HubProps & { docs: PubDocument[]; onVersions: (d: PubDocumen
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100">
       {p.docs.map((d) => (
-        <div key={d.id} className="px-4 py-3 hover:bg-slate-50 flex flex-wrap items-center gap-3">
+        <div
+          key={d.id}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData(DOC_MIME, d.id);
+            e.dataTransfer.effectAllowed = 'move';
+            setDragging(d.id);
+          }}
+          onDragEnd={() => setDragging(null)}
+          className={`px-3 py-3 hover:bg-slate-50 flex flex-wrap items-center gap-3 ${dragging === d.id ? 'opacity-40' : ''}`}
+        >
+          <GripVertical className="w-4 h-4 text-slate-300 cursor-grab shrink-0" aria-hidden />
           <button onClick={() => p.openDoc(d)} className="flex items-center gap-3 min-w-0 flex-1 text-start">
             <div className="w-12 h-14 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
-              {d.pages.length ? (
-                <PagePreview doc={d} pageIndex={0} width={d.orientation === 'landscape' ? 44 : 32} />
-              ) : (
-                <FileText className="w-5 h-5 text-brand-600" />
-              )}
+              {d.pages.length ? <PagePreview doc={d} pageIndex={0} width={previewWidth(d, 32)} /> : <FileText className="w-5 h-5 text-brand-600" />}
             </div>
             <div className="min-w-0">
               <div className="font-semibold text-sm text-slate-900 truncate">{d.title}</div>
               <div className="text-xs text-slate-500">
-                {t('common.pages', { n: d.pages.length })} • {d.orientation === 'landscape' ? t('common.landscape') : t('common.portrait')} •{' '}
-                {t('common.modified', { d: fmtDate(d.updatedAt) })}
+                {t('common.pages', { n: d.pages.length })} • {t('common.modified', { d: fmtDate(d.updatedAt) })}
               </div>
             </div>
           </button>
           <div className="flex items-center gap-1">
-            <IconBtn
-              title={d.favorite ? t('lib.unfavorite') : t('lib.favorite')}
-              onClick={() => p.updateDocMeta(d.id, { favorite: !d.favorite })}
-            >
+            <IconBtn title={d.favorite ? t('lib.unfavorite') : t('lib.favorite')} onClick={() => p.updateDocMeta(d.id, { favorite: !d.favorite })}>
               <Star className={`w-4 h-4 ${d.favorite ? 'text-amber-500 fill-amber-400' : ''}`} />
             </IconBtn>
             <select
@@ -677,6 +774,9 @@ function DocList(p: HubProps & { docs: PubDocument[]; onVersions: (d: PubDocumen
             <IconBtn title={t('hist.versions')} onClick={() => p.onVersions(d)}>
               <History className="w-4 h-4" />
             </IconBtn>
+            <IconBtn title={t('tplm.fromDoc')} onClick={() => p.onTemplate(d)}>
+              <LayoutTemplate className="w-4 h-4" />
+            </IconBtn>
             <IconBtn
               title={t('common.rename')}
               onClick={() => {
@@ -692,10 +792,7 @@ function DocList(p: HubProps & { docs: PubDocument[]; onVersions: (d: PubDocumen
             <IconBtn title={t('common.delete')} danger onClick={() => p.deleteDoc(d)}>
               <Trash2 className="w-4 h-4" />
             </IconBtn>
-            <button
-              onClick={() => p.openDoc(d)}
-              className="ms-1 px-3 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-800 text-xs font-semibold"
-            >
+            <button onClick={() => p.openDoc(d)} className="ms-1 px-3 py-1.5 rounded-lg bg-brand-50 hover:bg-brand-100 text-brand-800 text-xs font-semibold">
               {t('common.open')}
             </button>
           </div>
@@ -721,7 +818,7 @@ function IconBtn({ children, onClick, title, danger }: { children: React.ReactNo
 // ---------------------------------------------------------------------------
 // History (documents grouped by period, last 12 months)
 // ---------------------------------------------------------------------------
-function HistoryTab(p: HubProps & { onVersions: (d: PubDocument) => void }) {
+function HistoryTab(p: ListProps) {
   const { t, locale } = useI18n();
   const [counts, setCounts] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -736,7 +833,7 @@ function HistoryTab(p: HubProps & { onVersions: (d: PubDocument) => void }) {
     const now = new Date();
     const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const day = 86400000;
-    const dow = (now.getDay() + 6) % 7; // Monday = 0
+    const dow = (now.getDay() + 6) % 7;
     const startWeek = startToday - dow * day;
     const startMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const limit = Date.now() - HISTORY_RETENTION_DAYS * day;
@@ -769,16 +866,14 @@ function HistoryTab(p: HubProps & { onVersions: (d: PubDocument) => void }) {
         <p className="text-sm text-slate-500">{t('hist.sub')}</p>
         <p className="text-xs text-slate-400 mt-1">{t('hist.retention')}</p>
       </div>
-      {groups.length === 0 && (
-        <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-sm">{t('hist.empty')}</div>
-      )}
+      {groups.length === 0 && <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-10 text-center text-slate-500 text-sm">{t('hist.empty')}</div>}
       {groups.map((g) => (
         <section key={g.key} className="space-y-2">
           <h3 className="text-sm font-bold uppercase tracking-wider text-brand-700 flex items-center gap-2">
             <Clock className="w-4 h-4" /> {g.label}
             <span className="text-slate-400 font-medium normal-case tracking-normal">({g.docs.length})</span>
           </h3>
-          <DocList {...p} docs={g.docs} onVersions={p.onVersions} />
+          <DocList {...p} docs={g.docs} />
           <div className="flex flex-wrap gap-2 text-[11px] text-slate-400">
             {g.docs
               .filter((d) => counts[d.id])

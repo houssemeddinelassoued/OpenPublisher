@@ -48,13 +48,11 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('resize', close);
     window.addEventListener('blur', close);
-    window.addEventListener('wheel', close, { passive: true });
     return () => {
       window.removeEventListener('mousedown', onDown, true);
       window.removeEventListener('keydown', onKey, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('blur', close);
-      window.removeEventListener('wheel', close);
     };
   }, [onClose]);
 

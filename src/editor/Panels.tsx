@@ -19,7 +19,9 @@ import {
   Undo2
 } from 'lucide-react';
 import { useI18n } from '../i18n';
-import type { CanvasElementData, PageData, PageSizePreset, PubDocument } from '../core/model';
+import type { CanvasElementData, Orientation, PageData, PageSizePreset, PubDocument } from '../core/model';
+import { SHAPES } from '../core/shapes';
+import { ShapeIcon } from './ShapeGallery';
 import { PAGE_PRESETS } from '../core/model';
 import { pageOfElement, type FrameFlow } from '../core/textflow';
 import type { AlignOp } from './geometry';
@@ -149,7 +151,10 @@ export function PagePanel({
   editingMaster,
   setDocField,
   patchPage,
-  toggleMaster
+  toggleMaster,
+  pageOrient,
+  setPageOrient,
+  setAllOrient
 }: {
   doc: PubDocument;
   page: PageData;
@@ -158,6 +163,9 @@ export function PagePanel({
   setDocField: (p: Partial<PubDocument>, label: string, key?: string) => void;
   patchPage: (p: Partial<PageData>, label: string, key?: string) => void;
   toggleMaster: () => void;
+  pageOrient: Orientation;
+  setPageOrient: (o: Orientation) => void;
+  setAllOrient: (o: Orientation) => void;
 }) {
   const { t } = useI18n();
   const field = 'w-full mt-0.5 px-2 py-1 text-xs border border-slate-300 rounded';
@@ -197,17 +205,21 @@ export function PagePanel({
             </label>
           </div>
         )}
+        <div className="text-[11px] text-slate-500">{t('pg.orientPage')}</div>
         <div className="flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
           {(['portrait', 'landscape'] as const).map((o) => (
             <button
               key={o}
-              onClick={() => doc.orientation !== o && setDocField({ orientation: o }, t('act.orientation'))}
-              className={`flex-1 px-2 py-1 rounded-md ${doc.orientation === o ? 'bg-brand-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
+              onClick={() => pageOrient !== o && setPageOrient(o)}
+              className={`flex-1 px-2 py-1 rounded-md ${pageOrient === o ? 'bg-brand-700 text-white' : 'text-slate-600 hover:bg-slate-200'}`}
             >
               {o === 'portrait' ? t('common.portrait') : t('common.landscape')}
             </button>
           ))}
         </div>
+        <button onClick={() => setAllOrient(pageOrient)} className="text-[11px] text-brand-700 hover:underline">
+          {t('pg.orientAll')}
+        </button>
         <label className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
           {t('pg.margins')}
           <input
@@ -387,6 +399,24 @@ export function ElementPanel({
           </label>
         </div>
       </div>
+
+      {el.type === 'shape' && el.shapeVariant !== 'line' && (
+        <div className="space-y-1.5 pt-2 border-t border-slate-200">
+          <div className="text-[11px] font-semibold text-slate-600">{t('insp.shape')}</div>
+          <div className="grid grid-cols-7 gap-0.5 max-h-36 overflow-y-auto op-scroll">
+            {SHAPES.filter((x) => x.id !== 'line' && x.id !== 'rounded').map((x) => (
+              <button
+                key={x.id}
+                title={t(`shape.${x.id}`)}
+                onClick={() => patch({ shapeVariant: x.id }, t('act.shape'))}
+                className={`aspect-square rounded-md p-1 flex items-center justify-center ${el.shapeVariant === x.id ? 'bg-brand-100 ring-1 ring-brand-400' : 'hover:bg-slate-100'}`}
+              >
+                <ShapeIcon id={x.id} size={20} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {el.type !== 'image' && el.type !== 'border' && el.shapeVariant !== 'line' && (
         <div className="flex items-center justify-between text-[11px] text-slate-600 pt-2 border-t border-slate-200">

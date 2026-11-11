@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useI18n } from './i18n';
 import { Hub, type HubTab } from './pages/Hub';
 import { Editor } from './editor/Editor';
-import { AboutModal, HelpModal, ImportReportModal, VersionsModal } from './components/Modals';
-import type { DocVersion, Folder, Orientation, PageSizePreset, PubDocument, PubImportReport } from './core/model';
+import { HelpModal, ImportReportModal, VersionsModal } from './components/Modals';
+import { AboutModal } from './components/About';
+import type { DocVersion, Folder, Orientation, PageSizePreset, PubDocument, PubImportReport, UserTemplate } from './core/model';
 import { cloneDoc, uid } from './core/model';
 import {
   addVersion,
@@ -18,10 +19,13 @@ import {
   pruneOldVersions,
   restoreBackup,
   saveDocument,
-  saveFolder
+  saveFolder,
+  loadTemplates,
+  saveTemplate,
+  deleteTemplate as deleteTemplateRecord
 } from './core/db';
 import { parseFallbackDocumentFile, parsePublisherBinaryBuffer } from './core/importers';
-import { buildTemplates, type TemplateInfo } from './templates';
+import { buildTemplates, userTemplateInfo, type TemplateInfo } from './templates';
 import { APP_VERSION } from './meta';
 import { createHistory, type HistoryStore } from './editor/history';
 
@@ -45,7 +49,9 @@ export default function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [importReport, setImportReport] = useState<PubImportReport | null>(null);
-  const [templates] = useState<TemplateInfo[]>(() => buildTemplates());
+  const [builtinTemplates] = useState<TemplateInfo[]>(() => buildTemplates());
+  const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
+  const templates = [...userTemplates.map(userTemplateInfo), ...builtinTemplates];
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const backupInputRef = useRef<HTMLInputElement | null>(null);
@@ -81,6 +87,7 @@ export default function App() {
   useEffect(() => {
     loadDocuments().then(setDocs);
     loadFolders().then(setFolders);
+    loadTemplates().then(setUserTemplates);
     pruneOldVersions();
   }, []);
 
@@ -177,7 +184,7 @@ export default function App() {
     const d: PubDocument = {
       ...cloneDoc(tpl.doc),
       id: uid('doc'),
-      title: t(`tpl.${tpl.key}.title`),
+      title: tpl.title ?? t(`tpl.${tpl.key}.title`),
       isTemplate: false,
       createdAt: now,
       updatedAt: now,
@@ -228,6 +235,39 @@ export default function App() {
       })
     );
   };
+  const moveFolder = (id: string, parentId: string | null) => {
+    setFolders((l) =>
+      l.map((f) => {
+        if (f.id !== id) return f;
+        const nf = { ...f, parentId };
+        saveFolder(nf);
+        return nf;
+      })
+    );
+    notify(t('n.moved'));
+  };
+
+  // ------------------------------------------------------------- user templates
+  const createUserTemplate = async (doc: PubDocument, name: string, description: string) => {
+    const now = new Date().toISOString();
+    const tpl: UserTemplate = {
+      id: uid('tpl'),
+      name,
+      description,
+      createdAt: now,
+      doc: { ...cloneDoc(doc), id: uid('tpldoc'), title: name, isTemplate: true, folderId: null, favorite: false, updatedAt: now }
+    };
+    const ok = await saveTemplate(tpl);
+    if (!ok) return notify(t('n.saveFailed'));
+    setUserTemplates((l) => [tpl, ...l]);
+    notify(t('tplm.created', { t: name }));
+  };
+
+  const removeUserTemplate = async (id: string) => {
+    await deleteTemplateRecord(id);
+    setUserTemplates((l) => l.filter((x) => x.id !== id));
+  };
+
   const deleteFolder = (id: string) => {
     const f = folders.find((x) => x.id === id);
     if (!f) return;
@@ -386,6 +426,7 @@ export default function App() {
           notify={notify}
           openHelp={() => setHelpOpen(true)}
           openAbout={() => setAboutOpen(true)}
+          onSaveTemplate={createUserTemplate}
         />
       ) : (
         <Hub
@@ -394,6 +435,9 @@ export default function App() {
           docs={docs}
           folders={folders}
           templates={templates}
+          deleteTemplate={removeUserTemplate}
+          saveDocAsTemplate={createUserTemplate}
+          moveFolder={moveFolder}
           openDoc={openDoc}
           createBlank={createBlank}
           createFromTemplate={createFromTemplate}

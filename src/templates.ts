@@ -59,10 +59,13 @@ function doc(
 const PW = 794, PH = 1123; // A4 portrait @ 96 dpi
 const LW = 1123, LH = 794; // A4 landscape
 
-export type TemplateGroup = 'class' | 'parents' | 'rewards' | 'organisation';
+export type TemplateGroup = 'mine' | 'class' | 'parents' | 'rewards' | 'organisation';
 
 export interface TemplateInfo {
   key: string;
+  /** Set for user templates (built-in ones are translated from their key). */
+  title?: string;
+  userId?: string;
   group: TemplateGroup;
   color: string;
   description: string;
@@ -239,4 +242,9 @@ export function buildTemplates(): TemplateInfo[] {
     };
   }
   return list;
+}
+
+/** Wraps a user template so the hub can show it next to the built-in ones. */
+export function userTemplateInfo(u: import('./core/model').UserTemplate): TemplateInfo {
+  return { key: u.id, userId: u.id, title: u.name, description: u.description, group: 'mine', color: '#127a80', doc: u.doc };
 }
